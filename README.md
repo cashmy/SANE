@@ -26,14 +26,14 @@ AI may classify, suggest, and explain candidates. The human remains responsible 
 
 ## Current Status
 
-This repository currently contains the initial scaffold:
+This repository currently contains a bounded Stage 1 ALPHA candidate:
 
-- React + Vite + TypeScript frontend
-- Python + FastAPI backend
-- SQLite-ready SQLAlchemy wiring
+- React + Vite + TypeScript review UI
+- Python + FastAPI workflow API
+- SQLite-backed candidate and decision persistence
+- deterministic backend classifier for demo candidates
 - Pydantic-based backend settings
-- frontend and backend test scaffolds
-- placeholder Stage 1 workflow surface
+- frontend and backend workflow tests
 
 Gmail OAuth, Gmail API integration, AI classification, and email actions are intentionally deferred.
 
@@ -53,11 +53,11 @@ flowchart LR
     API --> UI
 ```
 
-The frontend is the user decision surface.
+The frontend is the user decision surface for reviewing candidates and recording explicit decisions.
 
-The backend is the integration, classification, workflow, and persistence layer.
+The backend is the classification, workflow, and persistence layer for the ALPHA slice.
 
-The AI classifier is planned as a bounded injected subsystem, not an autonomous decision authority.
+The current classifier is deterministic and local. A future AI-backed classifier can replace it without becoming the final authority.
 
 ## Structure
 
@@ -119,13 +119,20 @@ pytest
 
 The backend exposes a health endpoint at `http://localhost:8000/api/health`.
 
+Current workflow endpoints:
+
+- `GET /api/candidates`
+- `POST /api/decisions`
+- `GET /api/decisions`
+
 ## Current Scope
 
-- Stage 1 placeholder workflow: Connect -> Review Candidates -> Decide -> Complete
-- Backend health endpoint and environment-based configuration
-- SQLite-ready SQLAlchemy session wiring for ALPHA
-- Frontend and backend test scaffolds
-- No live email data is accessed yet
+- Stage 1 review workflow for demo candidates: review, decide, and preserve processed state
+- Backend candidate listing and decision recording endpoints
+- Local SQLite persistence for candidates and decisions
+- Deterministic classifier suggestions that remain subordinate to explicit human approval
+- Frontend loading, error, and processed-history states
+- No live email data or external email actions are executed yet
 
 ## Deferred Work
 
