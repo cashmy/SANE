@@ -1,6 +1,6 @@
 from sqlalchemy import select
 
-from app.models import Decision
+from app.models import Decision, User
 
 
 def test_list_sources_returns_paginated_source_rows(client) -> None:
@@ -75,10 +75,13 @@ def test_create_decision_persists_locally(client, db_session) -> None:
     persisted_decision = db_session.scalar(
         select(Decision).where(Decision.candidate_id == source_id)
     )
+    owner = db_session.scalar(select(User).where(User.is_local_alpha.is_(True)))
 
     assert create_response.status_code == 201
     assert history_response.status_code == 200
     assert persisted_decision is not None
+    assert owner is not None
+    assert persisted_decision.user_id == owner.id
     assert persisted_decision.external_action_status.value == "not_executed"
     assert history_response.json()["items"][0]["source"]["id"] == source_id
     assert (
@@ -182,6 +185,8 @@ def test_batch_decision_requires_confirmation_and_stays_local(client) -> None:
 def test_source_response_stays_inside_stage_one_boundary(client) -> None:
     payload = client.get("/api/sources").json()["items"][0]
 
+    assert "user_id" not in payload
+    assert "owner_id" not in payload
     assert "account_id" not in payload
     assert "subscription_tier" not in payload
     assert "gtd_status" not in payload

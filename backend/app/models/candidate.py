@@ -3,7 +3,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, DateTime, Enum as SqlEnum, Float, String, Text, func
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Enum as SqlEnum,
+    Float,
+    ForeignKey,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -11,6 +20,7 @@ from app.models.enums import CandidateSignal, CandidateState, DecisionValue
 
 if TYPE_CHECKING:
     from app.models.decision import Decision
+    from app.models.user import User
 
 
 class Candidate(Base):
@@ -18,6 +28,7 @@ class Candidate(Base):
     # Internal SQLAlchemy name retained to reduce ALPHA churn; external contracts use source language.
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     source_key: Mapped[str] = mapped_column(String(160), unique=True, index=True)
     source_name: Mapped[str] = mapped_column(String(140))
     sender_emails: Mapped[list[str]] = mapped_column(JSON)
@@ -46,6 +57,7 @@ class Candidate(Base):
     decisions: Mapped[list["Decision"]] = relationship(
         back_populates="candidate", cascade="all, delete-orphan"
     )
+    user: Mapped["User"] = relationship("User", back_populates="candidates")
 
     @property
     def current_decision(self) -> DecisionValue | None:

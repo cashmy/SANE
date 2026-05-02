@@ -71,11 +71,13 @@ Validation note:
 | A27 | Deferred Scale Risk | Backend/Search | Source search uses simple ALPHA-scale filtering, including casted SQLite JSON email search. Replace with a deliberate large-scale search/index strategy before real mailbox volume. | Open |
 | A28 | Architecture Reconsideration | Backend/Database | SQLite-first may be a Native workforce default that creates unnecessary churn under AI-Injected compressed development. Reconsider starting or moving quickly to PostgreSQL. | Decided |
 | A29 | RBA Recommendation | Process/UI Validation | Do not defer visible UI refinement solely because functionality works. Human reviewers often need visible change to perceive progress, trust the loop, and understand what changed. | Process Captured |
-| A30 | Architecture Foundation | Backend/Database | Migrate from SQLite-first ALPHA persistence to PostgreSQL-ready persistence with migration support before Gmail/auth/subscription work hardens around SQLite. | Open |
-| A31 | Architecture Foundation | Backend/Auth Readiness | Add basic user/account ownership foundation so sources, decisions, settings, and future Gmail connections have a real owner. | Open |
+| A30 | Architecture Foundation | Backend/Database | Migrate from SQLite-first ALPHA persistence to PostgreSQL-ready persistence with migration support before Gmail/auth/subscription work hardens around SQLite. | Partially Resolved |
+| A31 | Architecture Foundation | Backend/Auth Readiness | Add basic user/account ownership foundation so sources, decisions, settings, and future Gmail connections have a real owner. | Resolved for ALPHA |
 | A32 | Gmail Governance | Integration/Workflow | Gmail scanning/importing/analyzing must never run merely because the app opens; ingestion must be user-requested or chrono-controlled. | Decided |
 | A33 | Gmail Integration | Integration/API | Implement Gmail OAuth/API and bounded ingestion only after the database/user foundation is in place; first real-data contact should be limited by count and/or recency. | Deferred |
 | A34 | Visual Identity | Frontend/Design System | Current palette may be too close to the original UI to produce the expected perceived visual change; consider a stronger SANE visual identity pass after architecture foundation. | Open |
+| A35 | Architecture Risk | Backend/Data Model | `source_key` remains globally unique; future OAuth/multi-user work likely requires uniqueness scoped by user/account. | Open |
+| A36 | Validation Gap | Backend/Database | PostgreSQL is configured and migration-ready, but live PostgreSQL migration/runtime validation has not yet been exercised. | Open |
 
 ---
 
@@ -704,6 +706,20 @@ Guardrail:
 
 This is a persistence foundation pass, not a product-expansion pass.
 
+Implementation result:
+
+Prompt 07 added PostgreSQL-ready configuration, Alembic migration support, PostgreSQL driver dependency, and a formal initial migration.
+
+Validation:
+
+- backend tests passed
+- frontend regression tests/build passed
+- Alembic path was exercised against a fresh SQLite file
+
+Remaining gap:
+
+Live PostgreSQL was not exercised in the current environment. A30 is therefore partially resolved rather than fully resolved.
+
 ### A31 - Basic User / Account Ownership Foundation
 
 Decision:
@@ -727,6 +743,16 @@ Scope direction:
 Guardrail:
 
 Do not implement full authentication, billing, subscriptions, or Gmail OAuth in this pass.
+
+Implementation result:
+
+Prompt 07 added a basic `User` model and local ALPHA user resolution.
+
+Sources and decisions now have internal `user_id` ownership while the existing API contract remains unchanged.
+
+Status:
+
+Resolved for ALPHA.
 
 ### A32 - Gmail Ingestion Trigger Governance
 
@@ -815,6 +841,58 @@ Consider a stronger SANE visual identity pass after the PostgreSQL/user foundati
 Guardrail:
 
 Do not reopen broad UI redesign during the immediate architecture foundation pass unless the UI blocks ALPHA review.
+
+### A35 - User-Scoped Source Key
+
+Decision:
+
+Track before OAuth/multi-user hardening.
+
+Observation:
+
+Prompt 07 kept `source_key` globally unique to reduce ALPHA churn.
+
+Risk:
+
+In a real multi-user system, two users may have the same email source/vendor/source key. Global uniqueness would incorrectly prevent that.
+
+Future action:
+
+Before live OAuth or multi-user use, consider replacing the global unique constraint with a user-scoped unique constraint such as:
+
+```text
+unique(user_id, source_key)
+```
+
+Guardrail:
+
+This does not need to block the current ALPHA local-user path, but it should not be forgotten before Gmail/account integration.
+
+### A36 - Live PostgreSQL Validation
+
+Decision:
+
+Track as a validation gap.
+
+Observation:
+
+The codebase is now PostgreSQL-ready in configuration and migration structure, but validation was performed through SQLite-backed automated tests plus SQLite Alembic migration exercise.
+
+Future action:
+
+Run a live local PostgreSQL validation:
+
+```powershell
+SANE_DATABASE_URL=postgresql+psycopg://...
+alembic upgrade head
+python -m pytest
+```
+
+or a documented equivalent.
+
+Status:
+
+Open until a real PostgreSQL target has been exercised.
 
 ---
 

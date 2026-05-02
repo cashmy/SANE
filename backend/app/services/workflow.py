@@ -10,6 +10,7 @@ from app.schemas.workflow import BatchDecisionCreate, DecisionCreate
 from app.services import action_executor
 from app.services.classifier import classify_demo_candidate
 from app.services.demo_candidates import DEMO_CANDIDATES
+from app.services.ownership import get_or_create_local_alpha_user
 
 
 class HumanApprovalRequiredError(ValueError):
@@ -50,9 +51,12 @@ class BatchDecisionResult:
 
 
 def ensure_demo_candidates(db: Session) -> None:
-    existing_count = db.scalar(select(func.count()).select_from(Candidate))
+    user = get_or_create_local_alpha_user(db)
+    existing_count = db.scalar(
+        select(func.count()).select_from(Candidate).where(Candidate.user_id == user.id)
+    )
     if existing_count:
-        return
+        return user
 
     for seed in DEMO_CANDIDATES:
         classification = classify_demo_candidate(
@@ -63,6 +67,7 @@ def ensure_demo_candidates(db: Session) -> None:
         )
         db.add(
             Candidate(
+                user_id=user.id,
                 source_key=seed.source_key,
                 source_name=seed.source_name,
                 sender_emails=list(seed.sender_emails),
@@ -78,6 +83,7 @@ def ensure_demo_candidates(db: Session) -> None:
         )
 
     db.commit()
+    return user
 
 
 def list_sources(
@@ -90,9 +96,9 @@ def list_sources(
     category: str | None = None,
     signal: CandidateSignal | None = None,
 ) -> SourceListResult:
-    ensure_demo_candidates(db)
+    user = ensure_demo_candidates(db)
 
-    base_filters = []
+    base_filters = [Candidate.user_id == user.id]
     if not include_processed:
         base_filters.append(Candidate.processing_state == CandidateState.pending_review)
 
@@ -154,25 +160,26 @@ def list_sources(
 
 
 def list_decisions(db: Session) -> list[Decision]:
-    ensure_demo_candidates(db)
+    user = ensure_demo_candidates(db)
 
     statement = (
         select(Decision)
         .options(selectinload(Decision.candidate).selectinload(Candidate.decisions))
+        .where(Decision.user_id == user.id)
         .order_by(Decision.created_at.desc(), Decision.id.desc())
     )
     return list(db.scalars(statement).all())
 
 
 def record_decision(db: Session, payload: DecisionCreate) -> DecisionWriteResult:
-    ensure_demo_candidates(db)
+    user = ensure_demo_candidates(db)
 
     if not payload.confirmed:
         raise HumanApprovalRequiredError(
             "Explicit human confirmation is required before a decision is recorded."
         )
 
-    candidate = _get_source_or_raise(db, payload.source_id)
+    candidate = _get_source_or_raise(db, payload.source_id, user.id)
 
     result = _apply_decision(
         db,
@@ -184,7 +191,7 @@ def record_decision(db: Session, payload: DecisionCreate) -> DecisionWriteResult
         db.commit()
 
     return DecisionWriteResult(
-        decision=_load_decision(db, result.decision.id),
+        decision=_load_decision(db, result.decision.id, user.id),
         applied=result.applied,
     )
 
@@ -193,7 +200,7 @@ def record_batch_decision(
     db: Session,
     payload: BatchDecisionCreate,
 ) -> BatchDecisionResult:
-    ensure_demo_candidates(db)
+    user = ensure_demo_candidates(db)
 
     if not payload.confirmed:
         raise HumanApprovalRequiredError(
@@ -202,7 +209,12 @@ def record_batch_decision(
 
     source_ids = list(dict.fromkeys(payload.source_ids))
     sources = list(
-        db.scalars(select(Candidate).where(Candidate.id.in_(source_ids))).all()
+        db.scalars(
+            select(Candidate).where(
+                Candidate.id.in_(source_ids),
+                Candidate.user_id == user.id,
+            )
+        ).all()
     )
     sources_by_id = {source.id: source for source in sources}
     missing_id = next(
@@ -229,8 +241,8 @@ def record_batch_decision(
         db.commit()
 
     return BatchDecisionResult(
-        applied=_ordered_decisions(db, applied_ids),
-        unchanged=_ordered_decisions(db, unchanged_ids),
+        applied=_ordered_decisions(db, applied_ids, user.id),
+        unchanged=_ordered_decisions(db, unchanged_ids, user.id),
     )
 
 
@@ -242,8 +254,13 @@ def _candidate_state_for_decision(decision: DecisionValue) -> CandidateState:
     return CandidateState.action_recommended
 
 
-def _get_source_or_raise(db: Session, source_id: int) -> Candidate:
-    source = db.get(Candidate, source_id)
+def _get_source_or_raise(db: Session, source_id: int, user_id: int) -> Candidate:
+    source = db.scalar(
+        select(Candidate).where(
+            Candidate.id == source_id,
+            Candidate.user_id == user_id,
+        )
+    )
     if source is None:
         raise CandidateNotFoundError(f"Source {source_id} was not found.")
     return source
@@ -261,6 +278,7 @@ def _apply_decision(
         return DecisionWriteResult(decision=latest, applied=False)
 
     decision = Decision(
+        user_id=candidate.user_id,
         candidate_id=candidate.id,
         revised_from_decision_id=latest.id if latest is not None else None,
         decision=decision_value,
@@ -285,11 +303,11 @@ def _latest_decision(db: Session, candidate_id: int) -> Decision | None:
     )
 
 
-def _load_decision(db: Session, decision_id: int) -> Decision:
+def _load_decision(db: Session, decision_id: int, user_id: int) -> Decision:
     decision = db.scalar(
         select(Decision)
         .options(selectinload(Decision.candidate).selectinload(Candidate.decisions))
-        .where(Decision.id == decision_id)
+        .where(Decision.id == decision_id, Decision.user_id == user_id)
     )
     if decision is None:
         raise CandidateNotFoundError(
@@ -298,14 +316,16 @@ def _load_decision(db: Session, decision_id: int) -> Decision:
     return decision
 
 
-def _ordered_decisions(db: Session, decision_ids: list[int]) -> list[Decision]:
+def _ordered_decisions(
+    db: Session, decision_ids: list[int], user_id: int
+) -> list[Decision]:
     if not decision_ids:
         return []
     decisions = list(
         db.scalars(
             select(Decision)
             .options(selectinload(Decision.candidate).selectinload(Candidate.decisions))
-            .where(Decision.id.in_(decision_ids))
+            .where(Decision.id.in_(decision_ids), Decision.user_id == user_id)
         ).all()
     )
     by_id = {decision.id: decision for decision in decisions}

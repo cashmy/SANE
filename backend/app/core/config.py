@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
     database_url: str = DEFAULT_DATABASE_URL
     cors_origins: list[str] = ["http://localhost:5173"]
+    local_user_email: str = "local-alpha@sane.local"
+    local_user_display_name: str = "Local ALPHA User"
 
 
 @lru_cache

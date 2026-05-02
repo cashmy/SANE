@@ -11,12 +11,14 @@ from app.models.enums import DecisionValue, ExternalActionStatus
 
 if TYPE_CHECKING:
     from app.models.candidate import Candidate
+    from app.models.user import User
 
 
 class Decision(Base):
     __tablename__ = "decisions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id"), index=True)
     revised_from_decision_id: Mapped[int | None] = mapped_column(
         ForeignKey("decisions.id"), nullable=True, index=True
@@ -37,6 +39,7 @@ class Decision(Base):
     candidate: Mapped["Candidate"] = relationship(
         "Candidate", back_populates="decisions"
     )
+    user: Mapped["User"] = relationship("User", back_populates="decisions")
     previous_decision = relationship("Decision", remote_side="Decision.id")
 
     @property

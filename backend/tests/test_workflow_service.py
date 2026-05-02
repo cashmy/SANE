@@ -1,6 +1,6 @@
 from sqlalchemy import func, select
 
-from app.models import Candidate, Decision
+from app.models import Candidate, Decision, User
 from app.models.enums import CandidateSignal, CandidateState, DecisionValue
 from app.schemas.workflow import BatchDecisionCreate, DecisionCreate
 from app.services import action_executor
@@ -16,13 +16,16 @@ from app.services.workflow import (
 
 def test_source_listing_returns_source_rows_with_email_counts(db_session) -> None:
     result = list_sources(db_session, page=1, page_size=8)
+    owner = db_session.scalar(select(User).where(User.is_local_alpha.is_(True)))
 
     assert result.pagination.total_items == 8
     assert len(result.items) == 8
+    assert owner is not None
     assert all(
         source.processing_state == CandidateState.pending_review
         for source in result.items
     )
+    assert all(source.user_id == owner.id for source in result.items)
     assert any(
         source.classifier_signal == CandidateSignal.ambiguous_source
         for source in result.items
@@ -93,6 +96,7 @@ def test_record_decision_persists_without_external_execution(
     assert persisted_decision is not None
     assert persisted_candidate is not None
     assert outcome.applied is True
+    assert persisted_candidate.user_id == persisted_decision.user_id
     assert persisted_candidate.processing_state == CandidateState.action_recommended
     assert persisted_decision.human_confirmed is True
     assert persisted_decision.external_action_status.value == "not_executed"

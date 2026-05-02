@@ -30,7 +30,9 @@ This repository currently contains a bounded Stage 1 ALPHA candidate:
 
 - React + Vite + TypeScript review UI
 - Python + FastAPI workflow API
-- SQLite-backed candidate and decision persistence
+- PostgreSQL-backed runtime persistence with Alembic-managed schema
+- SQLite fallback/bootstrap path for local ALPHA recovery and deterministic tests
+- local user ownership foundation for sources and decisions via the seeded `Local ALPHA User`
 - deterministic backend classifier for demo candidates
 - Pydantic-based backend settings
 - frontend and backend workflow tests
@@ -45,7 +47,7 @@ Current and planned architecture:
 flowchart LR
     User["User / Human Decision"] --> UI["React + Vite UI"]
     UI --> API["FastAPI Backend"]
-    API --> DB["SQLite ALPHA / PostgreSQL Publication"]
+  API --> DB["PostgreSQL Runtime / SQLite Test Path"]
 
     API -. "future" .-> Gmail["Gmail API + OAuth"]
     API -. "future" .-> AI["Bounded AI Classifier"]
@@ -73,8 +75,8 @@ SANE/
 
 - Frontend: React, Vite, TypeScript
 - Backend: Python, FastAPI
-- Data: SQLAlchemy 2.x, Pydantic, SQLite for ALPHA
-- Publication database target: PostgreSQL
+- Data: SQLAlchemy 2.x, Pydantic, PostgreSQL runtime, SQLite deterministic test/bootstrap path
+- Migrations: Alembic
 - Testing: Vitest and pytest
 - Future integrations: Gmail API, Google OAuth, bounded AI classifier
 
@@ -105,10 +107,19 @@ python -m venv .venv
 # activate the virtual environment for your shell
 pip install -r requirements.txt
 copy .env.example .env
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-The default SQLite path is resolved from the backend directory, so copying `.env.example` is safe without setting a database URL immediately.
+PostgreSQL is now the primary integrated runtime database path. The default SQLite path is still resolved from the backend directory, so copying `.env.example` is safe without setting a database URL immediately.
+
+To run against PostgreSQL instead of the local SQLite ALPHA path, set `SANE_DATABASE_URL` in `backend/.env`, for example:
+
+```bash
+SANE_DATABASE_URL=postgresql+psycopg://postgres:PASSWORD@localhost:5432/sane
+```
+
+Runtime schema changes should flow through Alembic. The pytest fixture keeps a dedicated deterministic SQLite metadata/bootstrap path for isolated tests, but Alembic is the formal runtime migration strategy.
 
 Run backend tests:
 
@@ -121,15 +132,18 @@ The backend exposes a health endpoint at `http://localhost:8000/api/health`.
 
 Current workflow endpoints:
 
-- `GET /api/candidates`
+- `GET /api/sources`
 - `POST /api/decisions`
+- `POST /api/decisions/batch`
 - `GET /api/decisions`
 
 ## Current Scope
 
 - Stage 1 review workflow for demo candidates: review, decide, and preserve processed state
 - Backend candidate listing and decision recording endpoints
-- Local SQLite persistence for candidates and decisions
+- PostgreSQL-backed runtime persistence through `SANE_DATABASE_URL`
+- Local ALPHA user ownership for sources and decisions without requiring real login yet
+- SQLite fallback/bootstrap support for deterministic tests and bounded local recovery
 - Deterministic classifier suggestions that remain subordinate to explicit human approval
 - Frontend loading, error, and processed-history states
 - No live email data or external email actions are executed yet
@@ -140,5 +154,4 @@ Current workflow endpoints:
 - Candidate ingestion and normalization
 - AI classification module
 - Human-approved action execution
-- Alembic migrations and production deployment concerns
 - Subscription tiers, billing, GTD workflow, and multi-account support
