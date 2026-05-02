@@ -53,8 +53,14 @@ export function AppShell() {
 
       <div className="app-body">
         <header className="toolbar">
-          <h1 className="toolbar-title">{viewTitles[activeView]}</h1>
-          <ThemeToggle />
+          <div className="toolbar-heading">
+            <span className="toolbar-kicker">Stage 1 ALPHA</span>
+            <h1 className="toolbar-title">{viewTitles[activeView]}</h1>
+          </div>
+          <div className="toolbar-meta">
+            <span className="toolbar-pill">Local only</span>
+            <ThemeToggle />
+          </div>
         </header>
         <main className="content-area" aria-label={viewTitles[activeView]}>
           {activeView === "review" && <ReviewView />}

@@ -93,8 +93,35 @@ export function DecisionsView() {
     }
   };
 
+  const currentCount = decisions.filter(
+    (decision) => decision.is_current,
+  ).length;
+  const revisionCount = decisions.filter(
+    (decision) => decision.is_revision,
+  ).length;
+
   return (
     <div className="decisions-view">
+      <dl className="summary-strip" aria-label="Decision summary">
+        <div className="summary-kpi summary-kpi--decision">
+          <dt>Current source states</dt>
+          <dd>{currentCount}</dd>
+          <span className="summary-note">Latest local decisions</span>
+        </div>
+        <div className="summary-kpi summary-kpi--revision">
+          <dt>Revision events</dt>
+          <dd>{revisionCount}</dd>
+          <span className="summary-note">Append-only history</span>
+        </div>
+        <div className="summary-kpi summary-kpi--safety">
+          <dt>External actions</dt>
+          <dd>
+            <span className="chip chip--neutral">Not executed</span>
+          </dd>
+          <span className="summary-note">Local-only ALPHA</span>
+        </div>
+      </dl>
+
       {errorMessage && (
         <div className="alert-error" role="alert">
           {errorMessage}
@@ -132,7 +159,10 @@ export function DecisionsView() {
                 </tr>
               ) : (
                 decisions.map((d) => (
-                  <tr key={d.id} className="source-row">
+                  <tr
+                    key={d.id}
+                    className={`source-row decision-row${d.is_current ? " decision-row--current" : " decision-row--historic"}`}
+                  >
                     <td className="col-source">
                       <span className="source-name">
                         {d.source.source_name}
@@ -159,7 +189,7 @@ export function DecisionsView() {
                     <td>
                       <div className="history-flags">
                         <span
-                          className={`chip ${d.is_current ? "chip--current" : "chip--neutral"}`}
+                          className={`chip ${d.is_current ? "chip--current" : "chip--superseded"}`}
                         >
                           {d.is_current ? "Current" : "Superseded"}
                         </span>

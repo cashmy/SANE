@@ -66,11 +66,16 @@ Validation note:
 | A22 | SKY Decision | Product/Data Model/UX | Add email count per source/vendor/cluster. Count is a high-value signal because it communicates scale and prioritization. | Resolved for ALPHA |
 | A23 | SKY Decision | Frontend/Workflow | Add multi-select / batch decision support before real high-volume ALPHA, with human confirmation and no external batch execution. | Resolved for ALPHA |
 | A24 | SKY Decision | Backend/Workflow Lifecycle | Add a way to clear or compact revision history past a selected point so decision history does not become its own clutter source. | Deferred |
-| A25 | Must Fix Before ALPHA Review | Frontend/Visual Design | Theme tokens are technically integrated, but components need visual tuning so the selected palette shapes the UI more intentionally and visible progress is legible to humans. | Open |
+| A25 | Must Fix Before ALPHA Review | Frontend/Visual Design | Theme tokens are technically integrated, but components need visual tuning so the selected palette shapes the UI more intentionally and visible progress is legible to humans. | Partially Resolved |
 | A26 | Technical Debt | Backend/Data Model | Internal SQLAlchemy `Candidate` model/table name was retained to reduce ALPHA churn while API/UI/docs use source language. Rename to `Source`/`EmailSource` before the model hardens. | Open |
 | A27 | Deferred Scale Risk | Backend/Search | Source search uses simple ALPHA-scale filtering, including casted SQLite JSON email search. Replace with a deliberate large-scale search/index strategy before real mailbox volume. | Open |
-| A28 | Architecture Reconsideration | Backend/Database | SQLite-first may be a Native workforce default that creates unnecessary churn under AI-Injected compressed development. Reconsider starting or moving quickly to PostgreSQL. | Open |
+| A28 | Architecture Reconsideration | Backend/Database | SQLite-first may be a Native workforce default that creates unnecessary churn under AI-Injected compressed development. Reconsider starting or moving quickly to PostgreSQL. | Decided |
 | A29 | RBA Recommendation | Process/UI Validation | Do not defer visible UI refinement solely because functionality works. Human reviewers often need visible change to perceive progress, trust the loop, and understand what changed. | Process Captured |
+| A30 | Architecture Foundation | Backend/Database | Migrate from SQLite-first ALPHA persistence to PostgreSQL-ready persistence with migration support before Gmail/auth/subscription work hardens around SQLite. | Open |
+| A31 | Architecture Foundation | Backend/Auth Readiness | Add basic user/account ownership foundation so sources, decisions, settings, and future Gmail connections have a real owner. | Open |
+| A32 | Gmail Governance | Integration/Workflow | Gmail scanning/importing/analyzing must never run merely because the app opens; ingestion must be user-requested or chrono-controlled. | Decided |
+| A33 | Gmail Integration | Integration/API | Implement Gmail OAuth/API and bounded ingestion only after the database/user foundation is in place; first real-data contact should be limited by count and/or recency. | Deferred |
+| A34 | Visual Identity | Frontend/Design System | Current palette may be too close to the original UI to produce the expected perceived visual change; consider a stronger SANE visual identity pass after architecture foundation. | Open |
 
 ---
 
@@ -473,6 +478,29 @@ Guardrail:
 
 Visible UI refinement should not become decorative drift. It should make the actual workflow state, scale, decisions, and user progress easier to see.
 
+Implementation result:
+
+Prompt 06b improved several component-level states:
+
+- active navigation is clearer
+- selected row state is clearer
+- selected batch state is more visible
+- email counts are more emphasized
+- filter/search rhythm is cleaner
+- table scan rhythm improved modestly
+
+SKY review:
+
+The result is better, but still not a decisive visual identity shift.
+
+Likely reason:
+
+The selected theme colors may be too close to the previous visual direction. BASE appears to have followed the rules, but the rules and palette did not create as much perceptual change as SKY expected.
+
+Status:
+
+Partially resolved. A25b improved visible workflow legibility, but a stronger visual identity/palette pass may be needed later if SANE needs a more distinct product feel.
+
 ### A20 - User / Account Placeholder
 
 Decision:
@@ -585,7 +613,7 @@ Design the large-scale search/indexing approach before real Gmail ingestion is u
 
 Decision:
 
-Reconsider the SQLite-first database decision for SANE.
+Move SANE toward PostgreSQL sooner rather than later.
 
 Observation:
 
@@ -653,6 +681,140 @@ Implementation note:
 A29 is not a BASE implementation contract by itself.
 
 It is a CORE/SKY process recommendation that informs when a UI refinement pass should be created. The actionable BASE work for the current SANE pass is A25.
+
+### A30 - PostgreSQL Persistence Foundation
+
+Decision:
+
+Implement PostgreSQL-ready persistence as the next architecture foundation pass.
+
+Rationale:
+
+SANE is moving quickly from ALPHA into Tier 1/publication-shaped architecture. Under high AI-assisted development compression, the SQLite-only interval is too brief to justify carrying SQLite-specific assumptions forward.
+
+Scope direction:
+
+- support PostgreSQL as the intended development/publication database
+- introduce or formalize migration support
+- preserve local development ergonomics
+- keep tests passing
+- avoid Gmail/OAuth/API work in this pass
+
+Guardrail:
+
+This is a persistence foundation pass, not a product-expansion pass.
+
+### A31 - Basic User / Account Ownership Foundation
+
+Decision:
+
+Add a basic user/account ownership model in the same foundation pass as PostgreSQL.
+
+Rationale:
+
+Tier 1 requires user-owned settings, decisions, connected email accounts, subscription/account readiness, and OAuth ownership boundaries.
+
+SANE should stop behaving internally like a single anonymous local workflow before Gmail/OAuth lands.
+
+Scope direction:
+
+- add a basic user/account model
+- associate sources and decisions with a user/account
+- keep a local ALPHA user seed/default path so existing local workflows still run
+- preserve the visible `Local ALPHA User` concept until real authentication is implemented
+- prepare for future OAuth without implementing live OAuth
+
+Guardrail:
+
+Do not implement full authentication, billing, subscriptions, or Gmail OAuth in this pass.
+
+### A32 - Gmail Ingestion Trigger Governance
+
+Decision:
+
+Gmail scanning/importing/analyzing must never run simply because the app opens.
+
+Rationale:
+
+Gmail access is not just an API call. It is a controlled ingestion workflow with privacy, trust, rate-limit, and user-intent implications.
+
+Allowed future triggers:
+
+- explicit user-requested scan
+- scheduled/chrono-controlled scan
+- bounded ALPHA/test scan
+
+Not allowed:
+
+- automatic scan/import/analyze on app load
+- hidden background Gmail access without user intent or configured schedule
+
+Future model direction:
+
+Add an ingestion run concept when Gmail work begins.
+
+Potential fields:
+
+- `user_id`
+- `gmail_connection_id`
+- `trigger_type`: manual, scheduled, alpha_test
+- `scope`
+- `limit_count`
+- `lookback_window`
+- `started_at`
+- `completed_at`
+- `status`
+- `message_count_scanned`
+- `source_count_created`
+- `error_summary`
+
+### A33 - Gmail OAuth / API / Bounded Ingestion
+
+Decision:
+
+Defer live Gmail OAuth/API implementation until after A30/A31 are complete.
+
+Rationale:
+
+Gmail integration introduces external auth, scopes, token storage, Google Cloud setup, rate limits, privacy concerns, and real mailbox data.
+
+First real Gmail data contact should be bounded.
+
+Initial ingestion direction:
+
+- connect through OAuth
+- use minimal necessary Gmail scopes
+- allow explicit manual scan
+- optionally prepare scheduled scan structure
+- import a bounded recent sample, such as latest 50 messages, not the full mailbox
+- normalize messages into source/vendor/cluster review rows
+- never execute external unsubscribe/archive/delete actions
+
+Guardrail:
+
+No Gmail ingestion should occur on app open.
+
+### A34 - SANE Visual Identity / Palette Differentiation
+
+Decision:
+
+Track as a future visual identity consideration.
+
+Observation:
+
+The A25b pass followed the extracted visual rules and produced a modestly better UI, but the perceived change remained smaller than expected.
+
+Possible cause:
+
+The selected palette may be too close to the original visual direction. If the color system does not create enough contrast from the prior UI, BASE can satisfy the visual rules while the human reviewer still experiences the result as only slightly changed.
+
+Future action:
+
+Consider a stronger SANE visual identity pass after the PostgreSQL/user foundation work, unless SKY decides the current restrained operational style is sufficient for ALPHA.
+
+Guardrail:
+
+Do not reopen broad UI redesign during the immediate architecture foundation pass unless the UI blocks ALPHA review.
 
 ---
 
@@ -810,3 +972,97 @@ Test expectations:
 - page size affects number of returned rows.
 - frontend renders pagination controls.
 - frontend can move between pages or update page size.
+
+### Contract A30 / A31 - PostgreSQL and User Ownership Foundation
+
+Decision:
+
+The next architecture foundation pass should combine PostgreSQL readiness and basic user/account ownership.
+
+Reason:
+
+These are tightly related Tier 1 foundations. PostgreSQL gives SANE the intended persistence base; user/account ownership gives future Gmail OAuth, settings, decisions, and subscription/account concepts somewhere correct to attach.
+
+Active scope:
+
+- add PostgreSQL-ready configuration
+- preserve `.env`-driven database selection
+- introduce or formalize migration support
+- keep local development usable
+- add a basic user/account persistence model
+- associate source review rows and decisions with a user/account
+- seed or resolve a local ALPHA user for existing demo/local workflows
+- preserve existing source/decision behavior under that local ALPHA user
+- update backend tests for user-owned data
+- update docs and environment examples
+
+Out of scope:
+
+- Gmail OAuth
+- Gmail API calls
+- token storage for live Google credentials
+- real authentication/login UI
+- billing/subscription enforcement
+- multi-account support
+- PostgreSQL deployment hosting decisions
+- external email actions
+
+Implementation expectations:
+
+- Existing API behavior should continue to work for ALPHA with a default/local user context.
+- New model relationships should make future OAuth/account work straightforward.
+- Tests should prove user ownership exists without requiring real login.
+- The pass should not trigger Gmail ingestion.
+
+### Contract A32 / A33 - Gmail Ingestion Governance
+
+Decision:
+
+Future Gmail integration must use controlled ingestion triggers.
+
+Hard rule:
+
+SANE must never scan, import, or analyze Gmail simply because the app opens.
+
+Allowed trigger types:
+
+- manual user-requested scan
+- scheduled/chrono-controlled scan
+- bounded ALPHA/test scan
+
+Future ingestion run contract:
+
+When Gmail work begins, represent each scan/import/analyze operation as an ingestion run or equivalent explicit workflow record.
+
+Candidate fields:
+
+- `user_id`
+- `gmail_connection_id`
+- `trigger_type`
+- `scope`
+- `limit_count`
+- `lookback_window`
+- `started_at`
+- `completed_at`
+- `status`
+- `message_count_scanned`
+- `source_count_created`
+- `error_summary`
+
+First Gmail API pass direction:
+
+- implement OAuth and Gmail connection only after A30/A31
+- use minimal necessary Gmail scopes
+- expose an explicit manual scan action
+- bound the first import by count and/or recency, such as latest 50 messages
+- normalize imported messages into source/vendor/cluster review units
+- preserve human-confirmed decision workflow
+- preserve no external unsubscribe/archive/delete execution
+
+Out of scope for the A30/A31 foundation pass:
+
+- live OAuth
+- live Gmail API calls
+- ingestion run execution
+- scheduled jobs
+- real mailbox imports

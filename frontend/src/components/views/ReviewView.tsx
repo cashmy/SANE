@@ -193,6 +193,9 @@ export function ReviewView() {
   const decidedCount = decisions.filter(
     (decision) => decision.is_current,
   ).length;
+  const revisionCount = decisions.filter(
+    (decision) => decision.is_revision,
+  ).length;
 
   const batchDisabled =
     selectedIds.length === 0 || isLoading || submittingKey !== null;
@@ -200,19 +203,24 @@ export function ReviewView() {
   return (
     <div className="review-view">
       <dl className="summary-strip" aria-label="Review summary">
-        <div className="summary-kpi">
+        <div className="summary-kpi summary-kpi--pending">
           <dt>Pending review</dt>
           <dd>{pagination.total_items}</dd>
+          <span className="summary-note">{sources.length} on this page</span>
         </div>
-        <div className="summary-kpi">
+        <div className="summary-kpi summary-kpi--decision">
           <dt>Sources with decision</dt>
           <dd>{decidedCount}</dd>
+          <span className="summary-note">
+            {revisionCount} revisions recorded
+          </span>
         </div>
-        <div className="summary-kpi">
+        <div className="summary-kpi summary-kpi--safety">
           <dt>External actions</dt>
           <dd>
             <span className="chip chip--neutral">Not executed</span>
           </dd>
+          <span className="summary-note">Local-only ALPHA</span>
         </div>
       </dl>
 
@@ -229,66 +237,87 @@ export function ReviewView() {
       )}
 
       <div className="filter-bar">
-        <input
-          className="search-input"
-          type="search"
-          placeholder="Search sources…"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-          aria-label="Search sources"
-        />
-        <select
-          className="filter-select"
-          value={categoryFilter}
-          onChange={(e) => {
-            setCategoryFilter(e.target.value);
-            setPage(1);
-          }}
-          aria-label="Filter by category"
-        >
-          <option value="">All categories</option>
-          {availableCategories.map((cat) => (
-            <option key={cat} value={cat}>
-              {cat}
-            </option>
-          ))}
-        </select>
-        <select
-          className="filter-select"
-          value={signalFilter}
-          onChange={(e) => {
-            setSignalFilter(e.target.value as "" | CandidateSignal);
-            setPage(1);
-          }}
-          aria-label="Filter by signal"
-        >
-          <option value="">All signals</option>
-          {(Object.keys(signalLabels) as CandidateSignal[]).map((sig) => (
-            <option key={sig} value={sig}>
-              {signalLabels[sig]}
-            </option>
-          ))}
-        </select>
-        <button
-          className="btn-secondary"
-          type="button"
-          onClick={() => {
-            setRefreshNonce((value) => value + 1);
-          }}
-          disabled={isLoading || submittingKey !== null}
-        >
-          Refresh
-        </button>
+        <div className="filter-search">
+          <input
+            className="search-input"
+            type="search"
+            placeholder="Search sources…"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            aria-label="Search sources"
+          />
+        </div>
+        <div className="filter-controls">
+          <select
+            className="filter-select"
+            value={categoryFilter}
+            onChange={(e) => {
+              setCategoryFilter(e.target.value);
+              setPage(1);
+            }}
+            aria-label="Filter by category"
+          >
+            <option value="">All categories</option>
+            {availableCategories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+          <select
+            className="filter-select"
+            value={signalFilter}
+            onChange={(e) => {
+              setSignalFilter(e.target.value as "" | CandidateSignal);
+              setPage(1);
+            }}
+            aria-label="Filter by signal"
+          >
+            <option value="">All signals</option>
+            {(Object.keys(signalLabels) as CandidateSignal[]).map((sig) => (
+              <option key={sig} value={sig}>
+                {signalLabels[sig]}
+              </option>
+            ))}
+          </select>
+          <button
+            className="btn-secondary"
+            type="button"
+            onClick={() => {
+              setRefreshNonce((value) => value + 1);
+            }}
+            disabled={isLoading || submittingKey !== null}
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
-      <div className="batch-bar" aria-label="Batch decision controls">
-        <span className="selection-summary">
-          {selectedIds.length} {pluralize(selectedIds.length, "source")}{" "}
-          selected on this view.
-        </span>
+      <div
+        className={`batch-bar${selectedIds.length > 0 ? " batch-bar--active" : ""}`}
+        aria-label="Batch decision controls"
+      >
+        <div className="batch-context">
+          <span
+            className={`selection-badge${selectedIds.length > 0 ? " selection-badge--active" : ""}`}
+          >
+            {selectedIds.length}
+          </span>
+          <div className="batch-summary">
+            <strong>
+              {selectedIds.length > 0
+                ? `${selectedIds.length} ${pluralize(selectedIds.length, "source")} selected`
+                : "Batch actions"}
+            </strong>
+            <span>
+              {sources.length} shown · Page {pagination.page}/
+              {pagination.total_pages} · {pagination.total_items} pending
+            </span>
+          </div>
+        </div>
         <div className="batch-actions">
           {(
             Object.entries(decisionActionLabels) as [DecisionValue, string][]
@@ -350,7 +379,10 @@ export function ReviewView() {
                   </tr>
                 ) : (
                   sources.map((source) => (
-                    <tr key={source.id} className="source-row">
+                    <tr
+                      key={source.id}
+                      className={`source-row${selectedIds.includes(source.id) ? " source-row--selected" : ""}`}
+                    >
                       <td className="select-cell">
                         <input
                           className="row-checkbox"
@@ -380,7 +412,12 @@ export function ReviewView() {
                           ))}
                         </div>
                       </td>
-                      <td className="col-count">{source.email_count}</td>
+                      <td className="col-count">
+                        <div className="count-metric">
+                          <strong>{source.email_count}</strong>
+                          <span>emails</span>
+                        </div>
+                      </td>
                       <td>{source.mailbox_category}</td>
                       <td>
                         <span
@@ -435,11 +472,15 @@ export function ReviewView() {
           </div>
 
           <div className="pagination-bar">
-            <span className="pagination-summary">
-              Page {pagination.page} of {pagination.total_pages} ·{" "}
-              {pagination.total_items}{" "}
-              {pluralize(pagination.total_items, "source")}
-            </span>
+            <div className="pagination-cluster">
+              <span className="pagination-pill">
+                Page {pagination.page} of {pagination.total_pages}
+              </span>
+              <span className="pagination-summary">
+                {pagination.total_items} queued{" "}
+                {pluralize(pagination.total_items, "source")}
+              </span>
+            </div>
             <div className="pagination-controls">
               <label className="page-size-control">
                 Page size
