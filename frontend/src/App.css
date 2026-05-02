@@ -1,0 +1,156 @@
+.app-shell {
+  min-height: 100vh;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.workflow-board {
+  width: min(1080px, 100%);
+  margin: 0 auto;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.panel {
+  border: 1px solid rgba(31, 54, 61, 0.12);
+  border-radius: 24px;
+  background: rgba(255, 251, 245, 0.88);
+  box-shadow: 0 22px 70px rgba(43, 59, 54, 0.08);
+  padding: 1.5rem;
+}
+
+.intro {
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(190, 214, 199, 0.7),
+      transparent 34%
+    ),
+    rgba(255, 251, 245, 0.92);
+}
+
+.eyebrow {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #516a64;
+}
+
+.intro h1,
+.stages h2,
+.queue h2 {
+  margin: 0;
+  color: #163038;
+}
+
+.summary,
+.queue-copy {
+  max-width: 72ch;
+  color: #31494b;
+}
+
+.stage-grid {
+  list-style: none;
+  padding: 0;
+  margin: 1.25rem 0 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.stage-card {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+  border-radius: 18px;
+  background: #f6efe1;
+  border: 1px solid rgba(43, 59, 54, 0.1);
+}
+
+.stage-index {
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #163038;
+  color: #fff7eb;
+  font-size: 0.9rem;
+}
+
+.stage-card h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #173039;
+}
+
+.stage-card p {
+  margin: 0;
+  color: #3f5354;
+}
+
+.candidate-list {
+  list-style: none;
+  padding: 0;
+  margin: 1.25rem 0 0;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.candidate-item {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem;
+  border-radius: 16px;
+  background: rgba(246, 239, 225, 0.75);
+  border: 1px solid rgba(31, 54, 61, 0.1);
+}
+
+.candidate-item strong,
+.candidate-item span,
+.candidate-item p {
+  margin: 0;
+}
+
+.candidate-item span {
+  color: #516a64;
+  font-size: 0.95rem;
+}
+
+.candidate-item p {
+  color: #173039;
+  font-weight: 600;
+  text-align: right;
+}
+
+@media (max-width: 900px) {
+  .stage-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .candidate-item {
+    grid-template-columns: 1fr;
+  }
+
+  .candidate-item p {
+    text-align: left;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    padding: 1rem 0.9rem 2rem;
+  }
+
+  .panel {
+    padding: 1.1rem;
+    border-radius: 20px;
+  }
+
+  .stage-grid {
+    grid-template-columns: 1fr;
+  }
+}
