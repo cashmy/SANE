@@ -57,6 +57,8 @@ Do not treat reporting assumptions after implementation as a substitute for pre-
 
 If all assumptions are local implementation details and do not affect product meaning, proceed after the plan.
 
+You must have human approval before executing the implementation.
+
 ---
 
 ## Target Issues

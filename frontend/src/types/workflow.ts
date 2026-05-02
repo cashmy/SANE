@@ -1,5 +1,3 @@
-export type WorkflowStageKey = "connect" | "review" | "decide" | "complete";
-
 export type CandidateSignal =
   | "promotional_digest"
   | "recurring_updates"
@@ -16,39 +14,60 @@ export type DecisionValue =
   | "mark_low_value"
   | "unsubscribe_later";
 
-export interface Candidate {
+export interface PaginationMeta {
+  page: number;
+  page_size: number;
+  total_items: number;
+  total_pages: number;
+  has_previous: boolean;
+  has_next: boolean;
+}
+
+export interface SourceRow {
   id: number;
-  sender_name: string;
-  sender_email: string;
-  subject: string;
+  source_key: string;
+  source_name: string;
+  sender_emails: string[];
+  email_count: number;
+  representative_subject: string;
   mailbox_category: string;
   candidate_reason: string;
   classifier_signal: CandidateSignal;
   suggested_decision: DecisionValue;
+  current_decision: DecisionValue | null;
   confidence: number | null;
   processing_state: CandidateState;
 }
 
-export interface CandidateSummary {
+export interface SourceSummary {
   id: number;
-  sender_name: string;
-  sender_email: string;
-  subject: string;
+  source_key: string;
+  source_name: string;
+  sender_emails: string[];
+  email_count: number;
+  representative_subject: string;
+  mailbox_category: string;
+  current_decision: DecisionValue | null;
   processing_state: CandidateState;
 }
 
 export interface DecisionRecord {
   id: number;
+  revised_from_decision_id: number | null;
   decision: DecisionValue;
   note: string | null;
   human_confirmed: boolean;
   external_action_status: "not_executed";
   created_at: string;
-  candidate: CandidateSummary;
+  is_current: boolean;
+  is_revision: boolean;
+  source: SourceSummary;
 }
 
-export interface CandidateListResponse {
-  items: Candidate[];
+export interface SourceListResponse {
+  items: SourceRow[];
+  pagination: PaginationMeta;
+  available_categories: string[];
 }
 
 export interface DecisionListResponse {
@@ -56,44 +75,23 @@ export interface DecisionListResponse {
 }
 
 export interface DecisionCreateRequest {
-  candidate_id: number;
+  source_id: number;
   decision: DecisionValue;
   confirmed: boolean;
   note?: string;
 }
 
-export interface WorkflowStage {
-  key: WorkflowStageKey;
-  label: string;
-  summary: string;
+export interface BatchDecisionCreateRequest {
+  source_ids: number[];
+  decision: DecisionValue;
+  confirmed: boolean;
+  note?: string;
 }
 
-export const workflowStages: WorkflowStage[] = [
-  {
-    key: "connect",
-    label: "Connect",
-    summary:
-      "Prepare for a future Gmail connection without implementing OAuth in this slice.",
-  },
-  {
-    key: "review",
-    label: "Review Candidates",
-    summary:
-      "Surface a bounded set of likely low-value messages once ingestion exists.",
-  },
-  {
-    key: "decide",
-    label: "Decide",
-    summary:
-      "Keep the user in the loop for every decision that affects email state.",
-  },
-  {
-    key: "complete",
-    label: "Complete",
-    summary:
-      "Persist processed state locally before any later action automation is considered.",
-  },
-];
+export interface BatchDecisionResponse {
+  applied: DecisionRecord[];
+  unchanged: DecisionRecord[];
+}
 
 export const signalLabels: Record<CandidateSignal, string> = {
   promotional_digest: "Promotional digest",
@@ -103,19 +101,19 @@ export const signalLabels: Record<CandidateSignal, string> = {
 
 export const processingStateLabels: Record<CandidateState, string> = {
   pending_review: "Pending review",
-  kept: "Kept for now",
-  marked_low_value: "Marked low value",
-  action_recommended: "Action recommended",
+  kept: "Keep Source",
+  marked_low_value: "Mark as Low Value",
+  action_recommended: "Queue for Unsubscribe",
 };
 
 export const decisionActionLabels: Record<DecisionValue, string> = {
-  keep_for_now: "Keep For Now",
-  mark_low_value: "Mark Low Value",
-  unsubscribe_later: "Recommend Unsubscribe Later",
+  keep_for_now: "Keep Source",
+  mark_low_value: "Mark as Low Value",
+  unsubscribe_later: "Queue for Unsubscribe",
 };
 
 export const decisionHistoryLabels: Record<DecisionValue, string> = {
-  keep_for_now: "Kept for now",
-  mark_low_value: "Marked as low value",
-  unsubscribe_later: "Recommended for later unsubscribe",
+  keep_for_now: "Keep Source",
+  mark_low_value: "Mark as Low Value",
+  unsubscribe_later: "Queue for Unsubscribe",
 };

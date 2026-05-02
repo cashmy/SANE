@@ -1,12 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.schemas.workflow import DecisionCreate, DecisionListResponse, DecisionRead
+from app.schemas.workflow import (
+    BatchDecisionCreate,
+    BatchDecisionResponse,
+    DecisionCreate,
+    DecisionListResponse,
+    DecisionRead,
+)
 from app.services.workflow import (
     CandidateNotFoundError,
     HumanApprovalRequiredError,
     list_decisions,
+    record_batch_decision,
     record_decision,
 )
 
@@ -19,6 +26,31 @@ def read_decisions(db: Session = Depends(get_db)) -> DecisionListResponse:
 
 
 @router.post(
+    "/batch",
+    response_model=BatchDecisionResponse,
+    summary="Record human-approved batch source decisions",
+)
+def create_batch_decision(
+    payload: BatchDecisionCreate,
+    db: Session = Depends(get_db),
+) -> BatchDecisionResponse:
+    try:
+        result = record_batch_decision(db, payload)
+        return BatchDecisionResponse(
+            applied=result.applied,
+            unchanged=result.unchanged,
+        )
+    except HumanApprovalRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    except CandidateNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+
+
+@router.post(
     "",
     response_model=DecisionRead,
     status_code=status.HTTP_201_CREATED,
@@ -26,10 +58,14 @@ def read_decisions(db: Session = Depends(get_db)) -> DecisionListResponse:
 )
 def create_decision(
     payload: DecisionCreate,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> DecisionRead:
     try:
-        return record_decision(db, payload)
+        result = record_decision(db, payload)
+        if not result.applied:
+            response.status_code = status.HTTP_200_OK
+        return result.decision
     except HumanApprovalRequiredError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)

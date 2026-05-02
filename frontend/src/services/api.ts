@@ -1,14 +1,17 @@
 import type {
-  CandidateListResponse,
+  BatchDecisionCreateRequest,
+  BatchDecisionResponse,
   DecisionCreateRequest,
   DecisionListResponse,
   DecisionRecord,
+  SourceListResponse,
+  CandidateSignal,
 } from "../types/workflow";
 
 export const apiConfig = {
   baseUrl: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000",
   healthPath: "/api/health",
-  candidatesPath: "/api/candidates",
+  sourcesPath: "/api/sources",
   decisionsPath: "/api/decisions",
 };
 
@@ -46,10 +49,38 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return (await response.json()) as T;
 };
 
-export const listCandidates = () =>
-  request<CandidateListResponse>(apiConfig.candidatesPath, {
-    method: "GET",
-  });
+interface ListSourcesParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  category?: string;
+  signal?: CandidateSignal;
+  includeProcessed?: boolean;
+}
+
+const buildQueryString = (params: ListSourcesParams) => {
+  const query = new URLSearchParams();
+
+  if (params.page !== undefined) query.set("page", String(params.page));
+  if (params.pageSize !== undefined) {
+    query.set("page_size", String(params.pageSize));
+  }
+  if (params.search) query.set("search", params.search);
+  if (params.category) query.set("category", params.category);
+  if (params.signal) query.set("signal", params.signal);
+  if (params.includeProcessed) query.set("include_processed", "true");
+
+  const search = query.toString();
+  return search ? `?${search}` : "";
+};
+
+export const listSources = (params: ListSourcesParams = {}) =>
+  request<SourceListResponse>(
+    `${apiConfig.sourcesPath}${buildQueryString(params)}`,
+    {
+      method: "GET",
+    },
+  );
 
 export const listDecisions = () =>
   request<DecisionListResponse>(apiConfig.decisionsPath, {
@@ -58,6 +89,12 @@ export const listDecisions = () =>
 
 export const createDecision = (payload: DecisionCreateRequest) =>
   request<DecisionRecord>(apiConfig.decisionsPath, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const createBatchDecision = (payload: BatchDecisionCreateRequest) =>
+  request<BatchDecisionResponse>(`${apiConfig.decisionsPath}/batch`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

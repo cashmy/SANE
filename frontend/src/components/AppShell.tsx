@@ -17,7 +17,7 @@ const navItems: { key: NavKey; label: string }[] = [
 
 const viewTitles: Record<NavKey, string> = {
   review: "Source Review",
-  decisions: "Decision History",
+  decisions: "Source Decision History",
   connections: "Connections",
   settings: "Settings",
 };
@@ -47,6 +47,7 @@ export function AppShell() {
         </ul>
         <div className="sidebar-footer">
           <span className="alpha-tag">Stage 1 ALPHA</span>
+          <span className="user-placeholder">Local ALPHA User</span>
         </div>
       </nav>
 

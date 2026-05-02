@@ -1,106 +1,211 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
+  createBatchDecision,
   createDecision,
-  listCandidates,
   listDecisions,
+  listSources,
 } from "../../services/api";
 import {
   decisionActionLabels,
   processingStateLabels,
   signalLabels,
-  type Candidate,
   type CandidateSignal,
+  type DecisionRecord,
   type DecisionValue,
+  type PaginationMeta,
+  type SourceRow,
 } from "../../types/workflow";
 
 const toErrorMessage = (error: unknown) => {
   if (error instanceof Error) return error.message;
-  return "The candidate queue could not be loaded.";
+  return "The source review queue could not be loaded.";
 };
 
+const defaultPagination: PaginationMeta = {
+  page: 1,
+  page_size: 5,
+  total_items: 0,
+  total_pages: 1,
+  has_previous: false,
+  has_next: false,
+};
+
+const PAGE_SIZE_OPTIONS = [5, 10, 20];
+
+const pluralize = (count: number, singular: string, plural = `${singular}s`) =>
+  count === 1 ? singular : plural;
+
 export function ReviewView() {
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [decidedCount, setDecidedCount] = useState(0);
+  const [sources, setSources] = useState<SourceRow[]>([]);
+  const [decisions, setDecisions] = useState<DecisionRecord[]>([]);
+  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+  const [pagination, setPagination] =
+    useState<PaginationMeta>(defaultPagination);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [submittingId, setSubmittingId] = useState<number | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [submittingKey, setSubmittingKey] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [signalFilter, setSignalFilter] = useState("");
-
-  const loadData = async () => {
-    setIsLoading(true);
-    setErrorMessage(null);
-    try {
-      const [candResponse, decResponse] = await Promise.all([
-        listCandidates(),
-        listDecisions(),
-      ]);
-      setCandidates(candResponse.items);
-      setDecidedCount(decResponse.items.length);
-    } catch (error) {
-      setErrorMessage(toErrorMessage(error));
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const [signalFilter, setSignalFilter] = useState<"" | CandidateSignal>("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
   useEffect(() => {
-    void loadData();
-  }, []);
+    let cancelled = false;
 
-  const handleDecision = async (
-    candidateId: number,
-    decision: DecisionValue,
-  ) => {
-    setSubmittingId(candidateId);
+    const loadData = async () => {
+      setIsLoading(true);
+      setErrorMessage(null);
+      try {
+        const [sourceResponse, decisionResponse] = await Promise.all([
+          listSources({
+            page,
+            pageSize,
+            search,
+            category: categoryFilter || undefined,
+            signal: signalFilter || undefined,
+          }),
+          listDecisions(),
+        ]);
+
+        if (cancelled) return;
+
+        setSources(sourceResponse.items);
+        setAvailableCategories(sourceResponse.available_categories);
+        setPagination(sourceResponse.pagination);
+        setDecisions(decisionResponse.items);
+        setSelectedIds((current) =>
+          current.filter((id) =>
+            sourceResponse.items.some((source) => source.id === id),
+          ),
+        );
+
+        if (sourceResponse.pagination.page !== page) {
+          setPage(sourceResponse.pagination.page);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setErrorMessage(toErrorMessage(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [page, pageSize, search, categoryFilter, signalFilter, refreshNonce]);
+
+  const requestRefresh = (affectedCount: number) => {
+    setSelectedIds([]);
+    if (sources.length <= affectedCount && pagination.page > 1) {
+      setPage(pagination.page - 1);
+      return;
+    }
+    setRefreshNonce((value) => value + 1);
+  };
+
+  const handleDecision = async (sourceId: number, decision: DecisionValue) => {
+    setSubmittingKey(`source-${sourceId}`);
     setErrorMessage(null);
+    setStatusMessage(null);
     try {
       await createDecision({
-        candidate_id: candidateId,
+        source_id: sourceId,
         decision,
         confirmed: true,
       });
-      setCandidates((current) => current.filter((c) => c.id !== candidateId));
-      setDecidedCount((n) => n + 1);
+      requestRefresh(1);
     } catch (error) {
       setErrorMessage(toErrorMessage(error));
     } finally {
-      setSubmittingId(null);
+      setSubmittingKey(null);
     }
   };
 
-  const categories = useMemo(
-    () => [...new Set(candidates.map((c) => c.mailbox_category))],
-    [candidates],
-  );
+  const handleBatchDecision = async (decision: DecisionValue) => {
+    if (selectedIds.length === 0) return;
 
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase();
-    return candidates.filter((c) => {
-      if (
-        q &&
-        !c.sender_name.toLowerCase().includes(q) &&
-        !c.sender_email.toLowerCase().includes(q)
-      ) {
-        return false;
+    const label = decisionActionLabels[decision];
+    const confirmed = window.confirm(
+      `Apply "${label}" to ${selectedIds.length} selected ${pluralize(selectedIds.length, "source")}? This updates local SANE state only.`,
+    );
+
+    if (!confirmed) return;
+
+    setSubmittingKey("batch");
+    setErrorMessage(null);
+    setStatusMessage(null);
+
+    try {
+      const result = await createBatchDecision({
+        source_ids: selectedIds,
+        decision,
+        confirmed: true,
+      });
+
+      setStatusMessage(
+        `${result.applied.length} ${pluralize(result.applied.length, "source")} updated${
+          result.unchanged.length
+            ? `, ${result.unchanged.length} unchanged`
+            : ""
+        }.`,
+      );
+      requestRefresh(result.applied.length);
+    } catch (error) {
+      setErrorMessage(toErrorMessage(error));
+    } finally {
+      setSubmittingKey(null);
+    }
+  };
+
+  const toggleSelection = (sourceId: number, checked: boolean) => {
+    setSelectedIds((current) => {
+      if (checked) {
+        return current.includes(sourceId) ? current : [...current, sourceId];
       }
-      if (categoryFilter && c.mailbox_category !== categoryFilter) return false;
-      if (signalFilter && c.classifier_signal !== signalFilter) return false;
-      return true;
+      return current.filter((id) => id !== sourceId);
     });
-  }, [candidates, search, categoryFilter, signalFilter]);
+  };
+
+  const toggleSelectAllOnPage = (checked: boolean) => {
+    const visibleIds = sources.map((source) => source.id);
+    setSelectedIds((current) => {
+      if (checked) {
+        return [...new Set([...current, ...visibleIds])];
+      }
+      return current.filter((id) => !visibleIds.includes(id));
+    });
+  };
+
+  const allOnPageSelected =
+    sources.length > 0 &&
+    sources.every((source) => selectedIds.includes(source.id));
+  const decidedCount = decisions.filter(
+    (decision) => decision.is_current,
+  ).length;
+
+  const batchDisabled =
+    selectedIds.length === 0 || isLoading || submittingKey !== null;
 
   return (
     <div className="review-view">
       <dl className="summary-strip" aria-label="Review summary">
         <div className="summary-kpi">
           <dt>Pending review</dt>
-          <dd>{candidates.length}</dd>
+          <dd>{pagination.total_items}</dd>
         </div>
         <div className="summary-kpi">
-          <dt>Decided</dt>
+          <dt>Sources with decision</dt>
           <dd>{decidedCount}</dd>
         </div>
         <div className="summary-kpi">
@@ -117,6 +222,12 @@ export function ReviewView() {
         </div>
       )}
 
+      {statusMessage && (
+        <p className="status-msg" role="status">
+          {statusMessage}
+        </p>
+      )}
+
       <div className="filter-bar">
         <input
           className="search-input"
@@ -125,6 +236,7 @@ export function ReviewView() {
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
+            setPage(1);
           }}
           aria-label="Search sources"
         />
@@ -133,11 +245,12 @@ export function ReviewView() {
           value={categoryFilter}
           onChange={(e) => {
             setCategoryFilter(e.target.value);
+            setPage(1);
           }}
           aria-label="Filter by category"
         >
           <option value="">All categories</option>
-          {categories.map((cat) => (
+          {availableCategories.map((cat) => (
             <option key={cat} value={cat}>
               {cat}
             </option>
@@ -147,7 +260,8 @@ export function ReviewView() {
           className="filter-select"
           value={signalFilter}
           onChange={(e) => {
-            setSignalFilter(e.target.value);
+            setSignalFilter(e.target.value as "" | CandidateSignal);
+            setPage(1);
           }}
           aria-label="Filter by signal"
         >
@@ -162,107 +276,222 @@ export function ReviewView() {
           className="btn-secondary"
           type="button"
           onClick={() => {
-            void loadData();
+            setRefreshNonce((value) => value + 1);
           }}
-          disabled={isLoading || submittingId !== null}
+          disabled={isLoading || submittingKey !== null}
         >
           Refresh
         </button>
       </div>
 
+      <div className="batch-bar" aria-label="Batch decision controls">
+        <span className="selection-summary">
+          {selectedIds.length} {pluralize(selectedIds.length, "source")}{" "}
+          selected on this view.
+        </span>
+        <div className="batch-actions">
+          {(
+            Object.entries(decisionActionLabels) as [DecisionValue, string][]
+          ).map(([decision, label]) => (
+            <button
+              key={decision}
+              className={`btn-action btn-action--${decision.replace(/_/g, "-")}`}
+              type="button"
+              onClick={() => {
+                void handleBatchDecision(decision);
+              }}
+              disabled={batchDisabled}
+            >
+              {submittingKey === "batch" ? "Applying…" : `Apply ${label}`}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {isLoading ? (
         <p className="status-msg" role="status">
-          Loading candidates…
+          Loading sources…
         </p>
       ) : (
-        <div className="table-container">
-          <table className="source-table" aria-label="Candidate sources">
-            <thead>
-              <tr>
-                <th>Source</th>
-                <th>Email</th>
-                <th>Category</th>
-                <th>Signal</th>
-                <th>Suggested</th>
-                <th>State</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 ? (
+        <>
+          <div className="table-container">
+            <table className="source-table" aria-label="Source review queue">
+              <thead>
                 <tr>
-                  <td colSpan={7} className="empty-row">
-                    {candidates.length === 0
-                      ? "No review items remain."
-                      : "No sources match the current filters."}
-                  </td>
+                  <th className="select-cell">
+                    <input
+                      className="row-checkbox"
+                      type="checkbox"
+                      aria-label="Select all sources on this page"
+                      checked={allOnPageSelected}
+                      onChange={(e) => {
+                        toggleSelectAllOnPage(e.target.checked);
+                      }}
+                    />
+                  </th>
+                  <th>Source</th>
+                  <th>Sender emails</th>
+                  <th>Email count</th>
+                  <th>Category</th>
+                  <th>Signal</th>
+                  <th>Suggested</th>
+                  <th>State</th>
+                  <th>Actions</th>
                 </tr>
-              ) : (
-                filtered.map((candidate) => (
-                  <tr key={candidate.id} className="source-row">
-                    <td className="col-source">
-                      <span className="source-name">
-                        {candidate.sender_name}
-                      </span>
-                      <span className="source-reason">
-                        {candidate.candidate_reason}
-                      </span>
-                    </td>
-                    <td className="col-email">{candidate.sender_email}</td>
-                    <td>{candidate.mailbox_category}</td>
-                    <td>
-                      <span
-                        className={`chip chip--signal chip--${candidate.classifier_signal.replace(/_/g, "-")}`}
-                      >
-                        {signalLabels[candidate.classifier_signal]}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className={`chip chip--decision chip--${candidate.suggested_decision.replace(/_/g, "-")}`}
-                      >
-                        {decisionActionLabels[candidate.suggested_decision]}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className={`chip chip--state chip--${candidate.processing_state.replace(/_/g, "-")}`}
-                      >
-                        {processingStateLabels[candidate.processing_state]}
-                      </span>
-                    </td>
-                    <td className="col-actions">
-                      <div className="row-actions">
-                        {(
-                          Object.entries(decisionActionLabels) as [
-                            DecisionValue,
-                            string,
-                          ][]
-                        ).map(([decision, label]) => (
-                          <button
-                            className={`btn-action btn-action--${decision.replace(/_/g, "-")}`}
-                            key={decision}
-                            type="button"
-                            disabled={submittingId === candidate.id}
-                            onClick={() => {
-                              void handleDecision(candidate.id, decision);
-                            }}
-                          >
-                            {submittingId === candidate.id ? "…" : label}
-                          </button>
-                        ))}
-                      </div>
+              </thead>
+              <tbody>
+                {sources.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="empty-row">
+                      {pagination.total_items === 0
+                        ? "No pending sources remain."
+                        : "No sources match the current server-side filters."}
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ) : (
+                  sources.map((source) => (
+                    <tr key={source.id} className="source-row">
+                      <td className="select-cell">
+                        <input
+                          className="row-checkbox"
+                          type="checkbox"
+                          checked={selectedIds.includes(source.id)}
+                          aria-label={`Select ${source.source_name}`}
+                          onChange={(e) => {
+                            toggleSelection(source.id, e.target.checked);
+                          }}
+                        />
+                      </td>
+                      <td className="col-source">
+                        <span className="source-name">
+                          {source.source_name}
+                        </span>
+                        <span className="source-subject">
+                          {source.representative_subject}
+                        </span>
+                        <span className="source-reason">
+                          {source.candidate_reason}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="sender-list">
+                          {source.sender_emails.map((senderEmail) => (
+                            <span key={senderEmail}>{senderEmail}</span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="col-count">{source.email_count}</td>
+                      <td>{source.mailbox_category}</td>
+                      <td>
+                        <span
+                          className={`chip chip--signal chip--${source.classifier_signal.replace(/_/g, "-")}`}
+                        >
+                          {signalLabels[source.classifier_signal]}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className={`chip chip--decision chip--${source.suggested_decision.replace(/_/g, "-")}`}
+                        >
+                          {decisionActionLabels[source.suggested_decision]}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className={`chip chip--state chip--${source.processing_state.replace(/_/g, "-")}`}
+                        >
+                          {processingStateLabels[source.processing_state]}
+                        </span>
+                      </td>
+                      <td className="col-actions">
+                        <div className="row-actions">
+                          {(
+                            Object.entries(decisionActionLabels) as [
+                              DecisionValue,
+                              string,
+                            ][]
+                          ).map(([decision, label]) => (
+                            <button
+                              className={`btn-action btn-action--${decision.replace(/_/g, "-")}`}
+                              key={decision}
+                              type="button"
+                              disabled={submittingKey === `source-${source.id}`}
+                              onClick={() => {
+                                void handleDecision(source.id, decision);
+                              }}
+                            >
+                              {submittingKey === `source-${source.id}`
+                                ? "…"
+                                : label}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="pagination-bar">
+            <span className="pagination-summary">
+              Page {pagination.page} of {pagination.total_pages} ·{" "}
+              {pagination.total_items}{" "}
+              {pluralize(pagination.total_items, "source")}
+            </span>
+            <div className="pagination-controls">
+              <label className="page-size-control">
+                Page size
+                <select
+                  className="filter-select page-size-select"
+                  aria-label="Page size"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPage(1);
+                  }}
+                >
+                  {PAGE_SIZE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={
+                  !pagination.has_previous ||
+                  isLoading ||
+                  submittingKey !== null
+                }
+                onClick={() => {
+                  setPage((current) => Math.max(1, current - 1));
+                }}
+              >
+                Previous
+              </button>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={
+                  !pagination.has_next || isLoading || submittingKey !== null
+                }
+                onClick={() => {
+                  setPage((current) => current + 1);
+                }}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </>
       )}
       <p className="table-footnote">
-        No external email actions are executed in this ALPHA. Decisions update
-        local state only.
+        No external email actions are executed in this ALPHA. Single and batch
+        decisions update local SANE state only.
       </p>
     </div>
   );

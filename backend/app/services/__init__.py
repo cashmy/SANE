@@ -3,8 +3,9 @@ from app.services.workflow import (
     CandidateNotFoundError,
     HumanApprovalRequiredError,
     ensure_demo_candidates,
-    list_candidates,
+    list_sources,
     list_decisions,
+    record_batch_decision,
     record_decision,
 )
 
@@ -14,7 +15,8 @@ __all__ = [
     "HumanApprovalRequiredError",
     "classify_demo_candidate",
     "ensure_demo_candidates",
-    "list_candidates",
     "list_decisions",
+    "list_sources",
+    "record_batch_decision",
     "record_decision",
 ]

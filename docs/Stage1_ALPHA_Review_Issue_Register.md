@@ -15,18 +15,23 @@ The fuller RBA/process version lives in the SANE-RBA artifact set.
 CORE re-ran validation after BASE implementation.
 
 ```text
-backend: python -m pytest -> 8 passed
-frontend: npm run test:run -> 5 passed
+backend: python -m pytest -> 15 passed
+frontend: npm run test:run -> 10 passed
 frontend: npm run build -> passed
 ```
+
+Validation note:
+
+- Frontend React `act(...)` warnings were removed.
+- Backend validation currently emits a `pytest-asyncio` deprecation warning about unset `asyncio_default_fixture_loop_scope`; this is not the prior frontend test warning and should be tracked separately if backend test config is hardened.
 
 ---
 
 ## Current Strengths
 
-- Stage 1 workflow is functional with local/demo data.
-- Backend supports listing candidates, recording decisions, and listing decisions.
-- Frontend supports candidate review, decision controls, history, loading state, and error state.
+- Stage 1 workflow is functional with local/demo source data.
+- Backend supports paginated source listing, single decisions, batch decisions, and decision history.
+- Frontend supports source review, source counts, decision controls, batch selection, history, loading state, and error state.
 - External email actions are explicitly not executed.
 - Tests protect governance behaviors, not only rendering.
 - Implementation remains inside Stage 1 boundaries.
@@ -37,31 +42,35 @@ frontend: npm run build -> passed
 
 | ID | Category | Layer | Issue | Status |
 |---|---|---|---|---|
-| A1 | SKY Decision | Product/Data Model | Candidates should move toward source/vendor/cluster review units, not individual message units. A source may contain one sender address or multiple related sender addresses/categories depending on reality. | Decided |
-| A2 | SKY Decision | Product Language | Use human-facing decision vocabulary: Keep Source, Mark as Low Value, Queue for Unsubscribe. | Decided |
-| A3 | Deferred Decision | Frontend/AI Trust | Do not display confidence/scoring in ALPHA. Keep scoring/confidence optional/provisional in data model and revisit in Tier 2/3 with stronger classifier design. | Decided |
-| A4 | Deferred Decision | Backend/Test | Current CRUD/API/service tests are acceptable for ALPHA. Improve test DB isolation later before CI/CD, auth, Gmail integration hardening, or larger persistence complexity. | Decided |
-| A5 | SKY Decision | Backend/Workflow | Support explicit decision revision with history. Avoid accidental duplicates, but allow user correction/reconsideration. | Decided |
-| A6 | Ancillary Procedure | Dev/Test UX | Create documented ALPHA/demo reset procedure; do not add in-app reset control for now. | Decided |
+| A1 | SKY Decision | Product/Data Model | Candidates should move toward source/vendor/cluster review units, not individual message units. A source may contain one sender address or multiple related sender addresses/categories depending on reality. | Resolved for ALPHA |
+| A2 | SKY Decision | Product Language | Use human-facing decision vocabulary: Keep Source, Mark as Low Value, Queue for Unsubscribe. | Resolved |
+| A3 | Deferred Decision | Frontend/AI Trust | Do not display confidence/scoring in ALPHA. Keep scoring/confidence optional/provisional in data model and revisit in Tier 2/3 with stronger classifier design. | Resolved for ALPHA |
+| A4 | Deferred Decision | Backend/Test | Current CRUD/API/service tests are acceptable for ALPHA. Improve test DB isolation later before CI/CD, auth, Gmail integration hardening, or larger persistence complexity. | Deferred |
+| A5 | SKY Decision | Backend/Workflow | Support explicit decision revision with history. Avoid accidental duplicates, but allow user correction/reconsideration. | Resolved for ALPHA |
+| A6 | Ancillary Procedure | Dev/Test UX | Create documented ALPHA/demo reset procedure; do not add in-app reset control for now. | Resolved |
 | A7 | Ongoing Review | Frontend/UX | Browser-level UI/workflow review is an ongoing cyclic ALPHA validation step after each meaningful BASE pass. | Ongoing |
-| A8 | Umbrella Scale Issue | Product/Data Model/UX | Resolved when A1 source/vendor/cluster rows, A22 email count, and A16 pagination/page-size behavior are implemented. | Dependent |
+| A8 | Umbrella Scale Issue | Product/Data Model/UX | Resolved when A1 source/vendor/cluster rows, A22 email count, and A16 pagination/page-size behavior are implemented. | Resolved for ALPHA |
 | A9 | Resolved for ALPHA | Frontend/UX | Previous decisions/history moved to a separate Decisions view. | Resolved |
 | A10 | Resolved for ALPHA | Process/UI Design | UI design direction artifact created and copied into project-local docs. | Resolved |
 | A11 | Resolved for ALPHA | Frontend/Visual Design | Visual style refactored toward operational console. | Resolved |
 | A12 | Resolved for ALPHA | Frontend/Navigation | Sidebar navigation added with Review, Decisions, Connections, and Settings views. | Resolved |
 | A13 | Must Fix Now | Process/Handoff | BASE cannot access external CORE/RBA workspace paths; required governance artifacts must live in project-local docs or be embedded in prompts. | Resolved |
-| A14 | Fix Before ALPHA | Frontend/Test | React `act(...)` warnings should be examined and fixed if caused by test implementation. Third-party/version-caused warnings may be documented separately. | Decided |
-| A15 | Fix Before ALPHA | Frontend/Cleanup | Remove `WorkflowBoard.tsx` and any other dead code from immediate refactors. No preservation value at this early stage. | Decided |
-| A16 | Must Fix Before Real Data | Frontend/Backend Contract | Add pagination/page-size behavior before ALPHA with real data and before using real data. Filtering alone is not sufficient. | Decided |
-| A17 | Must Fix Now | Process/Governance | BASE reported assumptions after implementation instead of asking clarifying questions before coding; strengthened prompt now produced a pre-coding clarification summary. Still needs validation when ambiguity requires stopping to ask. | Partially Validated |
+| A14 | Fix Before ALPHA | Frontend/Test | React `act(...)` warnings should be examined and fixed if caused by test implementation. Third-party/version-caused warnings may be documented separately. | Resolved |
+| A15 | Fix Before ALPHA | Frontend/Cleanup | Remove `WorkflowBoard.tsx` and any other dead code from immediate refactors. No preservation value at this early stage. | Resolved |
+| A16 | Must Fix Before Real Data | Frontend/Backend Contract | Add pagination/page-size behavior before ALPHA with real data and before using real data. Filtering alone is not sufficient. | Resolved for ALPHA |
+| A17 | Must Fix Now | Process/Governance | BASE reported assumptions after implementation instead of asking clarifying questions before coding; strengthened prompt now produced a pre-coding clarification summary and later surfaced blocking contract questions before implementation. | Validated |
 | A18 | SKY Decision | Frontend/Display Mode | Light/dark mode toggle added with localStorage persistence and document-level `data-theme`. | Resolved |
 | A19 | Must Fix Now | Frontend/UI Governance | Theme/color token system added with raw palette scales and semantic SANE tokens. | Resolved |
-| A20 | Fix Before ALPHA | Frontend/Auth Readiness | Add user/account placeholder now; real auth/user persistence comes with OAuth/subscription work later. | Decided |
+| A20 | Fix Before ALPHA | Frontend/Auth Readiness | Add user/account placeholder now; real auth/user persistence comes with OAuth/subscription work later. | Resolved for ALPHA |
 | A21 | Positive Finding | Frontend/Error Handling | When backend server crashed, frontend handled failure gracefully and displayed `Failed to fetch`. | Observed |
-| A22 | SKY Decision | Product/Data Model/UX | Add email count per source/vendor/cluster. Count is a high-value signal because it communicates scale and prioritization. | Decided |
-| A23 | SKY Decision | Frontend/Workflow | Add multi-select / batch decision support before real high-volume ALPHA, with human confirmation and no external batch execution. | Decided |
-| A24 | SKY Decision | Backend/Workflow Lifecycle | Add a way to clear or compact revision history past a selected point so decision history does not become its own clutter source. | Decided |
-| A25 | Should Fix Before ALPHA | Frontend/Visual Design | Theme tokens are technically integrated, but components need visual tuning so the selected palette shapes the UI more intentionally. | Open |
+| A22 | SKY Decision | Product/Data Model/UX | Add email count per source/vendor/cluster. Count is a high-value signal because it communicates scale and prioritization. | Resolved for ALPHA |
+| A23 | SKY Decision | Frontend/Workflow | Add multi-select / batch decision support before real high-volume ALPHA, with human confirmation and no external batch execution. | Resolved for ALPHA |
+| A24 | SKY Decision | Backend/Workflow Lifecycle | Add a way to clear or compact revision history past a selected point so decision history does not become its own clutter source. | Deferred |
+| A25 | Must Fix Before ALPHA Review | Frontend/Visual Design | Theme tokens are technically integrated, but components need visual tuning so the selected palette shapes the UI more intentionally and visible progress is legible to humans. | Open |
+| A26 | Technical Debt | Backend/Data Model | Internal SQLAlchemy `Candidate` model/table name was retained to reduce ALPHA churn while API/UI/docs use source language. Rename to `Source`/`EmailSource` before the model hardens. | Open |
+| A27 | Deferred Scale Risk | Backend/Search | Source search uses simple ALPHA-scale filtering, including casted SQLite JSON email search. Replace with a deliberate large-scale search/index strategy before real mailbox volume. | Open |
+| A28 | Architecture Reconsideration | Backend/Database | SQLite-first may be a Native workforce default that creates unnecessary churn under AI-Injected compressed development. Reconsider starting or moving quickly to PostgreSQL. | Open |
+| A29 | RBA Recommendation | Process/UI Validation | Do not defer visible UI refinement solely because functionality works. Human reviewers often need visible change to perceive progress, trust the loop, and understand what changed. | Process Captured |
 
 ---
 
@@ -362,11 +371,11 @@ Git history will preserve prior states once version control is initialized.
 
 Decision:
 
-Move to partially validated.
+Validated for this repair loop.
 
 Rationale:
 
-The BASE prompt was strengthened to require reading local governance docs and to ask clarifying questions rather than guessing.
+The BASE prompt was strengthened to require reading local governance docs, summarize assumptions before coding, and ask clarifying questions rather than guessing.
 
 In the theme/color pass, BASE produced a clarification gate summary before coding:
 
@@ -376,11 +385,14 @@ In the theme/color pass, BASE produced a clarification gate summary before codin
 - confirmed files were not imported
 - stated a merge strategy
 
-This validates improvement in the process.
+The later curated repair pass strengthened this further:
 
-Remaining validation:
+- BASE surfaced blocking questions about source modeling and decision revision semantics before implementation.
+- CORE corrected the issue register by adding explicit implementation contracts.
+- SKY stopped/reoriented BASE before the partial implementation hardened.
+- BASE reverted partial backend changes and replanned against the clarified contract.
 
-We have not yet observed whether BASE will stop and ask when ambiguity is genuinely blocking.
+This validates the clarification gate as an RBA governance mechanism, while still requiring continued use in future prompts.
 
 ### A18 - Display Mode
 
@@ -430,6 +442,36 @@ frontend: npm run build -> passed
 Follow-up:
 
 The token system exists, but component-level visual design may still need refinement. Track that separately as A25.
+
+### A25 - Visible UI Refinement
+
+Decision:
+
+Do not defer A25 merely because it does not affect backend correctness or app performance.
+
+Rationale:
+
+Technical progress and human-perceived progress are different.
+
+Pagination, batch actions, source modeling, and backend decision semantics are substantial improvements, but many users, students, stakeholders, and ALPHA testers will not perceive that progress unless the interface visibly changes in a meaningful way.
+
+The current pagination addition is functionally important but visually minimal. It may not register as progress unless the reviewer is specifically looking for pagination.
+
+Recommendation:
+
+After significant functional repair passes, include a bounded UI refinement pass when the visible surface does not yet communicate the improvement.
+
+This is especially important for:
+
+- stakeholder confidence
+- student comprehension
+- ALPHA tester trust
+- product momentum
+- showing that the app is becoming more real, not merely more correct internally
+
+Guardrail:
+
+Visible UI refinement should not become decorative drift. It should make the actual workflow state, scale, decisions, and user progress easier to see.
 
 ### A20 - User / Account Placeholder
 
@@ -488,6 +530,129 @@ Revision history supports correction and audit, but it can become its own clutte
 Guardrail:
 
 History cleanup affects SANE local decision history/visibility only. It must not execute external email actions.
+
+### A26 - Internal Candidate Naming Debt
+
+Decision:
+
+Track as technical debt.
+
+Rationale:
+
+The ALPHA implementation retained the internal SQLAlchemy `Candidate` model/table name to avoid unnecessary churn during the repair pass.
+
+This is acceptable for now because the external contract is source-oriented:
+
+- `/api/sources`
+- `source_id`
+- `source_ids`
+- source labels in UI
+- source-oriented tests
+- source-oriented project docs
+
+Risk:
+
+If this name remains too long, it may fossilize the older message/candidate concept and confuse future backend work.
+
+Future action:
+
+Rename internal persistence and service language toward `Source` or `EmailSource` before the data model hardens around Gmail ingestion, migrations, or publication.
+
+### A27 - ALPHA Search / Indexing Risk
+
+Decision:
+
+Defer, but track before real mailbox volume.
+
+Rationale:
+
+The current SQLite search behavior is acceptable for seeded/demo ALPHA data.
+
+It is not a final strategy for tens of thousands of real emails or source clusters.
+
+Current risk:
+
+- simple filtering
+- casted JSON sender email search in SQLite
+- no full-text index
+- no source/domain search strategy
+
+Future action:
+
+Design the large-scale search/indexing approach before real Gmail ingestion is used against the full mailbox volume.
+
+### A28 - SQLite vs PostgreSQL Under AI-Injected Compression
+
+Decision:
+
+Reconsider the SQLite-first database decision for SANE.
+
+Observation:
+
+SQLite made sense under a Native workforce model because it reduces setup friction during a longer early ALPHA period.
+
+In the current RBA/HOMSP AI-assisted workflow, the ALPHA interval is brief because build-review-repair cycles are compressed into minutes. That reduces the practical value of a temporary database choice.
+
+Risk:
+
+The SQLite-first decision may create more friction than it saves:
+
+- different behavior from the publication database
+- migration churn
+- JSON/search differences
+- less realistic deployment preparation
+- educational confusion if students see SQLite introduced and quickly replaced
+
+Possible bias:
+
+This may reflect training-model typicality bias: choosing SQLite because it is a common prototype default rather than because it is optimal for this AI-Injected development context.
+
+Future action:
+
+Create a focused PostgreSQL migration prompt before Gmail ingestion or real mailbox testing.
+
+For future RBA app projects, evaluate database choice against expected AI-compressed ALPHA duration rather than using SQLite as the automatic default.
+
+### A29 - Do Not Over-Defer UI Changes
+
+Recommendation:
+
+Do not automatically defer UI/visual refinement just because the app is technically functional.
+
+Rationale:
+
+In AI-assisted development, large internal changes can happen quickly and invisibly:
+
+- backend model repair
+- API contract improvements
+- pagination
+- decision revision semantics
+- batch operation rules
+- test expansion
+
+These changes matter, but they may not be legible to a human reviewer from the screen.
+
+Human progress perception often requires visible evidence.
+
+Implication:
+
+For user-facing apps, RBA repair planning should distinguish:
+
+- functional correctness
+- architectural correctness
+- visible experiential progress
+
+A repair loop that only improves invisible internals may be technically successful while feeling stagnant to a human observer.
+
+Future prompt guidance:
+
+When a repair pass makes important workflow changes, ask BASE to also make bounded visual changes that help the user see those changes, without adding new scope or decorative clutter.
+
+Implementation note:
+
+A29 is not a BASE implementation contract by itself.
+
+It is a CORE/SKY process recommendation that informs when a UI refinement pass should be created. The actionable BASE work for the current SANE pass is A25.
 
 ---
 

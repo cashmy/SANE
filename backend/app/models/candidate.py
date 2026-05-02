@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum as SqlEnum, Float, String, Text, func
+from sqlalchemy import JSON, DateTime, Enum as SqlEnum, Float, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -15,11 +15,14 @@ if TYPE_CHECKING:
 
 class Candidate(Base):
     __tablename__ = "candidates"
+    # Internal SQLAlchemy name retained to reduce ALPHA churn; external contracts use source language.
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    sender_name: Mapped[str] = mapped_column(String(140))
-    sender_email: Mapped[str] = mapped_column(String(255))
-    subject: Mapped[str] = mapped_column(String(255))
+    source_key: Mapped[str] = mapped_column(String(160), unique=True, index=True)
+    source_name: Mapped[str] = mapped_column(String(140))
+    sender_emails: Mapped[list[str]] = mapped_column(JSON)
+    email_count: Mapped[int]
+    representative_subject: Mapped[str] = mapped_column(String(255))
     mailbox_category: Mapped[str] = mapped_column(String(80))
     candidate_reason: Mapped[str] = mapped_column(Text)
     classifier_signal: Mapped[CandidateSignal] = mapped_column(
@@ -43,3 +46,10 @@ class Candidate(Base):
     decisions: Mapped[list["Decision"]] = relationship(
         back_populates="candidate", cascade="all, delete-orphan"
     )
+
+    @property
+    def current_decision(self) -> DecisionValue | None:
+        latest = max(self.decisions, key=lambda decision: decision.id, default=None)
+        if latest is None:
+            return None
+        return latest.decision
