@@ -1,12 +1,8 @@
-import { WorkflowBoard } from "./components/WorkflowBoard";
+import { AppShell } from "./components/AppShell";
 import "./App.css";
 
 function App() {
-  return (
-    <main className="app-shell">
-      <WorkflowBoard />
-    </main>
-  );
+  return <AppShell />;
 }
 
 export default App;

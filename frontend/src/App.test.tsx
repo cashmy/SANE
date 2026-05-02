@@ -53,41 +53,66 @@ describe("App", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders review candidates and previous decisions", async () => {
+  it("renders sidebar navigation with all four views", () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ items: [] }))
+      .mockResolvedValueOnce(jsonResponse({ items: [] }));
+
+    render(<App />);
+
+    const nav = screen.getByRole("navigation", { name: /main navigation/i });
+    expect(
+      within(nav).getByRole("button", { name: /review/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(nav).getByRole("button", { name: /decisions/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(nav).getByRole("button", { name: /connections/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(nav).getByRole("button", { name: /settings/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("Review view displays candidate source rows", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(jsonResponse({ items: [candidate] }))
+      .mockResolvedValueOnce(jsonResponse({ items: [] }));
+
+    render(<App />);
+
+    const table = await screen.findByRole("table", {
+      name: /candidate sources/i,
+    });
+    expect(within(table).getByText(candidate.sender_name)).toBeInTheDocument();
+    expect(within(table).getByText(candidate.sender_email)).toBeInTheDocument();
+  });
+
+  it("Decisions view is separate from Review view", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ items: [candidate] }))
+      .mockResolvedValueOnce(jsonResponse({ items: [] }))
       .mockResolvedValueOnce(jsonResponse({ items: [decision] }));
 
     render(<App />);
 
-    expect(
-      screen.getByRole("heading", {
-        name: /review likely low-value email sources without executing email actions/i,
-      }),
-    ).toBeInTheDocument();
-    const reviewRegion = screen.getByRole("region", {
-      name: /review candidates/i,
-    });
-    const historyRegion = screen.getByRole("complementary", {
-      name: /previous decisions/i,
-    });
+    await screen.findByRole("table", { name: /candidate sources/i });
 
-    await waitFor(() => {
-      expect(
-        within(reviewRegion).getByText(candidate.subject),
-      ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /decisions/i }));
+
+    const decisionsTable = await screen.findByRole("table", {
+      name: /decision history/i,
     });
     expect(
-      within(historyRegion).getByText(decision.candidate.subject),
+      within(decisionsTable).getByText(/marked as low value/i),
     ).toBeInTheDocument();
     expect(
-      within(screen.getByLabelText(/workflow status summary/i)).getByText(
-        "External actions",
-      ),
-    ).toBeInTheDocument();
+      screen.queryByRole("table", { name: /candidate sources/i }),
+    ).not.toBeInTheDocument();
   });
 
-  it("updates local history only after an explicit decision click", async () => {
+  it("decision controls require explicit user action and move item from review queue", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(jsonResponse({ items: [candidate] }))
       .mockResolvedValueOnce(jsonResponse({ items: [] }))
@@ -95,36 +120,36 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText(candidate.subject)).toBeInTheDocument();
-    const reviewRegion = screen.getByRole("region", {
-      name: /review candidates/i,
-    });
-    const historyRegion = screen.getByRole("complementary", {
-      name: /previous decisions/i,
-    });
-
-    expect(
-      within(historyRegion).queryByText(/marked as low value/i),
-    ).not.toBeInTheDocument();
+    await screen.findByText(candidate.sender_name);
 
     await userEvent.click(
       screen.getByRole("button", { name: /mark low value/i }),
     );
 
     await waitFor(() => {
-      expect(
-        within(reviewRegion).queryByText(candidate.subject),
-      ).not.toBeInTheDocument();
+      expect(screen.queryByText(candidate.sender_name)).not.toBeInTheDocument();
     });
-    expect(
-      within(historyRegion).getByText(/marked as low value/i),
-    ).toBeInTheDocument();
-    expect(
-      within(historyRegion).getByText(/external action: not executed/i),
-    ).toBeInTheDocument();
   });
 
-  it("shows an error state when the workflow API fails", async () => {
+  it("Decisions view shows external action status as not executed", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ items: [] }))
+      .mockResolvedValueOnce(jsonResponse({ items: [] }))
+      .mockResolvedValueOnce(jsonResponse({ items: [decision] }));
+
+    render(<App />);
+
+    await userEvent.click(screen.getByRole("button", { name: /decisions/i }));
+
+    const table = await screen.findByRole("table", {
+      name: /decision history/i,
+    });
+    expect(within(table).getAllByText(/not executed/i).length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it("shows an error state when the Review API fails", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         jsonResponse(

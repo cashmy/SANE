@@ -1,339 +1,529 @@
+/* ============================================================
+   SANE Operational Console — App CSS
+   Stage 1 ALPHA
+   ============================================================ */
+
+/* --- Reset / base --- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  background: #eef2f5;
+  color: #1a2c35;
+}
+
+/* ============================================================
+   App shell — sidebar + body
+   ============================================================ */
+
 .app-shell {
-  min-height: 100vh;
-  padding: 2rem 1.25rem 3rem;
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
 }
 
-.workflow-board {
-  width: min(1180px, 100%);
-  margin: 0 auto;
-  display: grid;
-  gap: 1.25rem;
+/* --- Sidebar --- */
+
+.sidebar {
+  width: 216px;
+  flex-shrink: 0;
+  background: #1b2e38;
+  color: #c8d8e0;
+  display: flex;
+  flex-direction: column;
 }
 
-.panel {
-  border: 1px solid rgba(31, 54, 61, 0.12);
-  border-radius: 24px;
-  background: rgba(255, 251, 245, 0.88);
-  box-shadow: 0 22px 70px rgba(43, 59, 54, 0.08);
+.sidebar-brand {
+  padding: 1.25rem 1.25rem 1rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #ffffff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.nav-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0 0.5rem;
+  flex: 1;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.62rem 0.85rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #99b5c2;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background 100ms,
+    color 100ms;
+}
+
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #daeaf2;
+}
+
+.nav-item--active {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.sidebar-footer {
+  padding: 1rem 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.alpha-tag {
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #4e7080;
+}
+
+/* --- App body --- */
+
+.app-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* --- Toolbar --- */
+
+.toolbar {
+  height: 54px;
+  background: #ffffff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  padding: 0 1.5rem;
+  flex-shrink: 0;
+}
+
+.toolbar-title {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: #1a2c35;
+}
+
+/* --- Content area --- */
+
+.content-area {
+  flex: 1;
+  overflow-y: auto;
   padding: 1.5rem;
 }
 
-.intro {
+/* ============================================================
+   Review view
+   ============================================================ */
+
+.review-view,
+.decisions-view {
   display: grid;
-  gap: 1.25rem;
-  background:
-    radial-gradient(
-      circle at top right,
-      rgba(190, 214, 199, 0.7),
-      transparent 34%
-    ),
-    rgba(255, 251, 245, 0.92);
-}
-
-.eyebrow {
-  margin: 0 0 0.5rem;
-  font-size: 0.82rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #516a64;
-}
-
-.intro h1,
-.stages h2,
-.queue h2 {
-  margin: 0;
-  color: #163038;
-}
-
-.summary,
-.queue-copy {
-  max-width: 72ch;
-  color: #31494b;
-}
-
-.status-strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.8rem;
-  margin: 0;
-}
-
-.status-strip div {
-  padding: 1rem;
-  border-radius: 16px;
-  background: rgba(246, 239, 225, 0.8);
-  border: 1px solid rgba(31, 54, 61, 0.08);
-}
-
-.status-strip dt,
-.candidate-meta dt {
-  font-size: 0.82rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #5a6f6b;
-}
-
-.status-strip dd,
-.candidate-meta dd {
-  margin: 0.35rem 0 0;
-  color: #163038;
-  font-weight: 700;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-}
-
-.compact-header {
-  margin-bottom: 1rem;
-}
-
-.refresh-button,
-.decision-button {
-  border: 0;
-  border-radius: 999px;
-  background: #173039;
-  color: #fff7eb;
-  cursor: pointer;
-  transition:
-    transform 120ms ease,
-    opacity 120ms ease;
-}
-
-.refresh-button {
-  padding: 0.75rem 1rem;
-  white-space: nowrap;
-}
-
-.refresh-button:disabled,
-.decision-button:disabled {
-  cursor: wait;
-  opacity: 0.72;
-  transform: none;
-}
-
-.refresh-button:hover:enabled,
-.decision-button:hover:enabled {
-  transform: translateY(-1px);
-}
-
-.stage-grid {
-  list-style: none;
-  padding: 0;
-  margin: 1.25rem 0 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1rem;
-}
-
-.stage-card {
-  display: grid;
-  gap: 0.8rem;
-  padding: 1rem;
-  border-radius: 18px;
-  background: #f6efe1;
-  border: 1px solid rgba(43, 59, 54, 0.1);
-}
-
-.stage-index {
-  width: 2rem;
-  height: 2rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: #163038;
-  color: #fff7eb;
-  font-size: 0.9rem;
-}
-
-.stage-card h3 {
-  margin: 0;
-  font-size: 1.05rem;
-  color: #173039;
-}
-
-.stage-card p {
-  margin: 0;
-  color: #3f5354;
-}
-
-.alpha-guardrail p,
-.status-copy,
-.candidate-footnote,
-.history-item p,
-.empty-state p,
-.error-panel p {
-  margin: 0;
-  color: #31494b;
-}
-
-.review-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(280px, 0.95fr);
-  gap: 1.25rem;
-}
-
-.review-column,
-.history-column {
-  display: grid;
-  gap: 1rem;
+  gap: 0;
   align-content: start;
 }
 
-.candidate-list {
-  list-style: none;
-  padding: 0;
-  margin: 1.25rem 0 0;
-  display: grid;
-  gap: 0.85rem;
-}
+/* --- Summary strip --- */
 
-.candidate-card {
-  display: grid;
-  gap: 1rem;
-  padding: 1rem;
-  border-radius: 20px;
-  background: rgba(246, 239, 225, 0.75);
-  border: 1px solid rgba(31, 54, 61, 0.1);
-}
-
-.candidate-header {
+.summary-strip {
   display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: flex-start;
+  gap: 0.85rem;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  flex-wrap: wrap;
 }
 
-.candidate-source,
-.candidate-email,
-.history-label {
-  margin: 0;
+.summary-kpi {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 0.8rem 1.1rem;
+  min-width: 140px;
 }
 
-.candidate-source,
-.history-label {
-  font-size: 0.82rem;
-  letter-spacing: 0.08em;
+.summary-kpi dt {
+  font-size: 0.76rem;
   text-transform: uppercase;
-  color: #5a6f6b;
+  letter-spacing: 0.08em;
+  color: #5a7080;
+  margin-bottom: 0.3rem;
 }
 
-.candidate-card h3,
-.empty-state h3,
-.error-panel h2,
-.history-column h2,
-.review-column h2,
-.alpha-guardrail h2 {
+.summary-kpi dd {
   margin: 0;
-  color: #163038;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #1a2c35;
 }
 
-.candidate-email {
-  color: #516a64;
+/* --- Filter bar --- */
+
+.filter-bar {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
 }
 
-.state-pill {
+.search-input {
+  padding: 0.5rem 0.8rem;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 7px;
+  font-size: 0.86rem;
+  min-width: 200px;
+  background: #ffffff;
+  color: #1a2c35;
+}
+
+.search-input:focus {
+  outline: 2px solid #1e7a8c;
+  outline-offset: -1px;
+}
+
+.filter-select {
+  padding: 0.5rem 0.7rem;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 7px;
+  font-size: 0.86rem;
+  background: #ffffff;
+  color: #1a2c35;
+}
+
+.btn-secondary {
+  padding: 0.5rem 0.95rem;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 7px;
+  background: #ffffff;
+  color: #1a2c35;
+  font-size: 0.86rem;
+  cursor: pointer;
+  transition: background 100ms;
+  white-space: nowrap;
+}
+
+.btn-secondary:hover:enabled {
+  background: #eef2f5;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+/* ============================================================
+   Table
+   ============================================================ */
+
+.table-container {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+  overflow-x: auto;
+  margin-bottom: 0.85rem;
+}
+
+.source-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.87rem;
+}
+
+.source-table th {
+  padding: 0.6rem 0.9rem;
+  background: #f5f8fa;
+  text-align: left;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #5a7080;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+  white-space: nowrap;
+}
+
+.source-table td {
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  vertical-align: middle;
+}
+
+.source-row:last-child td {
+  border-bottom: none;
+}
+
+.source-row:hover {
+  background: #f7fafc;
+}
+
+.col-source {
+  min-width: 160px;
+}
+
+.col-email {
+  color: #4a6170;
+  white-space: nowrap;
+}
+
+.col-time {
+  white-space: nowrap;
+  color: #4a6170;
+  font-size: 0.82rem;
+}
+
+.col-actions {
+  min-width: 260px;
+}
+
+.source-name {
+  display: block;
+  font-weight: 600;
+  color: #1a2c35;
+}
+
+.source-reason,
+.source-email {
+  display: block;
+  font-size: 0.76rem;
+  color: #6a8090;
+  margin-top: 0.12rem;
+}
+
+.empty-row {
+  text-align: center;
+  padding: 2.5rem 1rem !important;
+  color: #6a8090;
+  font-size: 0.88rem;
+}
+
+/* --- Row action buttons --- */
+
+.row-actions {
+  display: flex;
+  gap: 0.38rem;
+  flex-wrap: wrap;
+}
+
+.btn-action {
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid;
+  font-size: 0.76rem;
+  cursor: pointer;
+  transition: opacity 100ms;
+  white-space: nowrap;
+}
+
+.btn-action:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.btn-action--keep-for-now {
+  background: #e8f4f8;
+  border-color: #b3d5e8;
+  color: #1a4c6e;
+}
+
+.btn-action--keep-for-now:hover:enabled {
+  background: #d4eaf5;
+}
+
+.btn-action--mark-low-value {
+  background: #fef3e2;
+  border-color: #f8d59e;
+  color: #7d4e0d;
+}
+
+.btn-action--mark-low-value:hover:enabled {
+  background: #fde9c3;
+}
+
+.btn-action--unsubscribe-later {
+  background: #fde8e8;
+  border-color: #f5b8b8;
+  color: #8b1a1a;
+}
+
+.btn-action--unsubscribe-later:hover:enabled {
+  background: #fad4d4;
+}
+
+/* --- Table footnote --- */
+
+.table-footnote {
+  margin: 0.1rem 0 0;
+  font-size: 0.76rem;
+  color: #6a8090;
+}
+
+/* ============================================================
+   Status chips
+   ============================================================ */
+
+.chip {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-height: 2.2rem;
-  padding: 0.45rem 0.8rem;
+  padding: 0.22rem 0.58rem;
   border-radius: 999px;
-  background: rgba(23, 48, 57, 0.08);
-  color: #173039;
+  font-size: 0.74rem;
   font-weight: 600;
-  text-align: center;
+  white-space: nowrap;
 }
 
-.candidate-meta {
+.chip--neutral {
+  background: #e8edf0;
+  color: #2c4454;
+}
+
+/* Signal chips */
+.chip--promotional-digest {
+  background: #fef3e2;
+  color: #7d4e0d;
+}
+
+.chip--recurring-updates {
+  background: #e8f4f8;
+  color: #1a4c6e;
+}
+
+.chip--ambiguous-source {
+  background: #e8edf0;
+  color: #3a5060;
+}
+
+/* Decision / history chips */
+.chip--keep-for-now {
+  background: #e6f4ef;
+  color: #17703a;
+}
+
+.chip--mark-low-value {
+  background: #fef3e2;
+  color: #7d4e0d;
+}
+
+.chip--unsubscribe-later {
+  background: #fde8e8;
+  color: #8b1a1a;
+}
+
+/* State chips */
+.chip--pending-review {
+  background: #e8edf0;
+  color: #3a5060;
+}
+
+.chip--kept {
+  background: #e6f4ef;
+  color: #17703a;
+}
+
+.chip--marked-low-value {
+  background: #fef3e2;
+  color: #7d4e0d;
+}
+
+.chip--action-recommended {
+  background: #fde8e8;
+  color: #8b1a1a;
+}
+
+/* ============================================================
+   Alert / status messages
+   ============================================================ */
+
+.alert-error {
+  background: #fde8e8;
+  border: 1px solid #f5b8b8;
+  border-radius: 8px;
+  color: #8b1a1a;
+  padding: 0.7rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.87rem;
+}
+
+.status-msg {
+  color: #6a8090;
+  font-size: 0.88rem;
+  margin: 0 0 1rem;
+}
+
+/* ============================================================
+   Placeholder views (Connections, Settings)
+   ============================================================ */
+
+.placeholder-view {
+  padding: 1rem 0;
+}
+
+.placeholder-card {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 1.75rem 2rem;
+  max-width: 460px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.85rem;
+  gap: 0.8rem;
+}
+
+.placeholder-card h2 {
   margin: 0;
+  font-size: 1.05rem;
+  color: #1a2c35;
 }
 
-.candidate-meta div {
-  padding: 0.85rem;
-  border-radius: 16px;
-  background: rgba(255, 251, 245, 0.9);
-}
-
-.candidate-reason {
+.placeholder-card p {
   margin: 0;
-  color: #173039;
+  color: #4a6170;
+  font-size: 0.88rem;
+  line-height: 1.6;
 }
 
-.candidate-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
+/* ============================================================
+   Responsive
+   ============================================================ */
 
-.decision-button {
-  padding: 0.75rem 1rem;
-}
-
-.candidate-footnote {
-  padding-top: 0.1rem;
-}
-
-.history-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 0.85rem;
-}
-
-.history-item,
-.empty-state,
-.error-panel {
-  display: grid;
-  gap: 0.45rem;
-  padding: 1rem;
-  border-radius: 18px;
-  background: rgba(246, 239, 225, 0.7);
-  border: 1px solid rgba(31, 54, 61, 0.1);
-}
-
-@media (max-width: 900px) {
-  .status-strip,
-  .stage-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (max-width: 800px) {
+  .sidebar {
+    width: 56px;
   }
 
-  .review-layout,
-  .section-header,
-  .candidate-header {
-    grid-template-columns: 1fr;
-    display: grid;
+  .sidebar-brand,
+  .alpha-tag,
+  .nav-item span:not(.nav-icon) {
+    display: none;
   }
 
-  .candidate-meta {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 640px) {
-  .app-shell {
-    padding: 1rem 0.9rem 2rem;
+  .nav-item {
+    justify-content: center;
+    padding: 0.7rem;
   }
 
-  .panel {
-    padding: 1.1rem;
-    border-radius: 20px;
-  }
-
-  .status-strip,
-  .stage-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .candidate-actions {
-    flex-direction: column;
+  .content-area {
+    padding: 1rem;
   }
 }
