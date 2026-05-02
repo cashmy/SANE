@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { ThemeToggle } from "./ThemeToggle";
 import { ConnectionsView } from "./views/ConnectionsView";
 import { DecisionsView } from "./views/DecisionsView";
 import { ReviewView } from "./views/ReviewView";
@@ -52,6 +53,7 @@ export function AppShell() {
       <div className="app-body">
         <header className="toolbar">
           <h1 className="toolbar-title">{viewTitles[activeView]}</h1>
+          <ThemeToggle />
         </header>
         <main className="content-area" aria-label={viewTitles[activeView]}>
           {activeView === "review" && <ReviewView />}

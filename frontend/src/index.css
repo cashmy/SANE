@@ -2,14 +2,8 @@
   font-family: Aptos, "Trebuchet MS", sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #173039;
-  background:
-    radial-gradient(
-      circle at top left,
-      rgba(223, 232, 223, 0.8),
-      transparent 28%
-    ),
-    linear-gradient(180deg, #f3ede2 0%, #ede5d8 100%);
+  color: var(--color-text, #1e1f24);
+  background: var(--color-bg, #eff0f3);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;

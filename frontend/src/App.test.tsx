@@ -167,4 +167,25 @@ describe("App", () => {
       /backend unavailable/i,
     );
   });
+
+  it("theme toggle is visible in the toolbar and switches display mode", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ items: [] }))
+      .mockResolvedValueOnce(jsonResponse({ items: [] }));
+
+    render(<App />);
+
+    const toggle = screen.getByRole("button", { name: /switch to dark mode/i });
+    expect(toggle).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    expect(
+      screen.getByRole("button", { name: /switch to light mode/i }),
+    ).toBeInTheDocument();
+
+    // cleanup
+    document.documentElement.removeAttribute("data-theme");
+  });
 });

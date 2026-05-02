@@ -53,14 +53,15 @@ frontend: npm run build -> passed
 | A14 | Fix Before ALPHA | Frontend/Test | React `act(...)` warnings should be examined and fixed if caused by test implementation. Third-party/version-caused warnings may be documented separately. | Decided |
 | A15 | Fix Before ALPHA | Frontend/Cleanup | Remove `WorkflowBoard.tsx` and any other dead code from immediate refactors. No preservation value at this early stage. | Decided |
 | A16 | Must Fix Before Real Data | Frontend/Backend Contract | Add pagination/page-size behavior before ALPHA with real data and before using real data. Filtering alone is not sufficient. | Decided |
-| A17 | Must Fix Now | Process/Governance | BASE reported assumptions after implementation instead of asking clarifying questions before coding; future prompts need an explicit clarification gate. | Testing |
-| A18 | SKY Decision | Frontend/Display Mode | Add display-mode support now rather than deferring; ALPHA will quickly become Tier 1 and AI-assisted implementation reduces deferral value. | Decided |
-| A19 | Must Fix Now | Frontend/UI Governance | SANE-specific UI docs need an explicit color set: primary, secondary, accent, neutrals, success, warning, destructive. | Open |
+| A17 | Must Fix Now | Process/Governance | BASE reported assumptions after implementation instead of asking clarifying questions before coding; strengthened prompt now produced a pre-coding clarification summary. Still needs validation when ambiguity requires stopping to ask. | Partially Validated |
+| A18 | SKY Decision | Frontend/Display Mode | Light/dark mode toggle added with localStorage persistence and document-level `data-theme`. | Resolved |
+| A19 | Must Fix Now | Frontend/UI Governance | Theme/color token system added with raw palette scales and semantic SANE tokens. | Resolved |
 | A20 | Fix Before ALPHA | Frontend/Auth Readiness | Add user/account placeholder now; real auth/user persistence comes with OAuth/subscription work later. | Decided |
 | A21 | Positive Finding | Frontend/Error Handling | When backend server crashed, frontend handled failure gracefully and displayed `Failed to fetch`. | Observed |
 | A22 | SKY Decision | Product/Data Model/UX | Add email count per source/vendor/cluster. Count is a high-value signal because it communicates scale and prioritization. | Decided |
 | A23 | SKY Decision | Frontend/Workflow | Add multi-select / batch decision support before real high-volume ALPHA, with human confirmation and no external batch execution. | Decided |
 | A24 | SKY Decision | Backend/Workflow Lifecycle | Add a way to clear or compact revision history past a selected point so decision history does not become its own clutter source. | Decided |
+| A25 | Should Fix Before ALPHA | Frontend/Visual Design | Theme tokens are technically integrated, but components need visual tuning so the selected palette shapes the UI more intentionally. | Open |
 
 ---
 
@@ -114,6 +115,7 @@ Remaining project-facing concerns:
 - SANE-specific UI docs need explicit palette decisions
 - app shell may need a future user/account placeholder
 - source rows should include an email count field once grouping/ingestion is defined
+- theme tokens are in place, but component-level visual integration may need refinement
 
 Positive finding:
 
@@ -360,19 +362,31 @@ Git history will preserve prior states once version control is initialized.
 
 Decision:
 
-Move to testing.
+Move to partially validated.
 
 Rationale:
 
-The BASE prompt has been strengthened to require reading local governance docs and to ask clarifying questions rather than guessing.
+The BASE prompt was strengthened to require reading local governance docs and to ask clarifying questions rather than guessing.
 
-This should be validated in the next BASE prompt cycle.
+In the theme/color pass, BASE produced a clarification gate summary before coding:
+
+- found the generated color CSS files
+- identified light/dark selectors
+- checked variable naming/collision risk
+- confirmed files were not imported
+- stated a merge strategy
+
+This validates improvement in the process.
+
+Remaining validation:
+
+We have not yet observed whether BASE will stop and ask when ambiguity is genuinely blocking.
 
 ### A18 - Display Mode
 
 Decision:
 
-Add display-mode support now rather than deferring.
+Resolved.
 
 Rationale:
 
@@ -383,6 +397,39 @@ Implementation direction:
 - include light/dark mode support
 - make the control visible in the app shell or Settings
 - preserve the operational console style in both modes
+
+Implementation result:
+
+- `ThemeToggle.tsx` added
+- toggle is visible in the toolbar
+- `data-theme` is applied to `documentElement`
+- user choice persists to `localStorage`
+
+### A19 - Color Token System
+
+Decision:
+
+Resolved technically.
+
+Implementation result:
+
+- generated Radix color CSS was merged into `frontend/src/styles/theme.css`
+- raw light/dark blue and gray scales are present
+- semantic SANE tokens are defined
+- `App.css` and `index.css` now use semantic tokens
+- source color CSS files were removed
+- no Radix package dependency was added
+
+Validation:
+
+```text
+frontend: npm run test:run -> 9 passed, with existing act(...) warnings
+frontend: npm run build -> passed
+```
+
+Follow-up:
+
+The token system exists, but component-level visual design may still need refinement. Track that separately as A25.
 
 ### A20 - User / Account Placeholder
 
