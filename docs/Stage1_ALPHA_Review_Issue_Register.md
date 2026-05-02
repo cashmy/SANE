@@ -516,3 +516,132 @@ Each repair pass should:
 - preserve Stage 1 boundaries
 - include tests when behavior changes
 - report changed files and validation results
+
+---
+
+## Implementation Decision Contracts
+
+This section translates curated SKY decisions into implementation-ready contracts for BASE.
+
+These contracts reduce avoidable clarification questions while preserving the requirement that BASE stop and ask when true ambiguity remains.
+
+### Contract A1 / A22 - ALPHA Source Review Unit
+
+Decision:
+
+For ALPHA, create an explicit source/vendor/cluster review model.
+
+Do not infer real clustering logic yet.
+
+ALPHA data contract:
+
+Each source row should include:
+
+- stable `source_key`
+- display `source_name`
+- one or more sender emails
+- one or more Gmail/mailbox categories if useful
+- `email_count`
+- one representative message subject or summary
+- candidate/source reason
+- classifier/signal value
+- suggested decision
+- current processing/decision state
+
+Behavior contract:
+
+- The Review table row represents a source/vendor/cluster, not a single email message.
+- Representative message fields may be shown as examples, but should not define the review unit.
+- Multiple sender emails can belong to one source.
+- Real source grouping/clustering can be refined later after Gmail ingestion exposes real patterns.
+
+Deferred:
+
+- real Gmail clustering
+- domain-based inference
+- per-message exceptions
+- source merge/split tools
+
+Test expectations:
+
+- API returns source rows with email count.
+- Source rows can contain multiple sender emails.
+- UI displays email count.
+- UI language does not imply the row is only one email message.
+
+### Contract A5 / A23 - Decision Revision and Batch Decision Behavior
+
+Decision:
+
+Use a current-state plus append-only history model.
+
+Behavior contract:
+
+- latest decision wins for the current source state
+- decision history remains append-only
+- repeated identical decision is a no-op
+- different decision appends a revision event
+- explicit revision/correction is allowed
+- batch decisions follow the same rules as single-source decisions
+- batch decisions require human confirmation
+- batch decisions do not execute external email actions
+
+Data contract:
+
+Each source should expose:
+
+- current decision/state
+- decision history entries or revision events
+- enough timestamps/order fields to determine latest decision
+
+Each decision event should include:
+
+- source identifier
+- decision value
+- human confirmation
+- external action status
+- created/recorded timestamp
+- optional note if already supported
+- indicator or semantics showing whether it is a revision when applicable
+
+Deferred:
+
+- per-message exceptions inside a source
+- revision history compaction/cleanup
+- external batch action execution
+- undo UX beyond explicit change/reconsideration
+
+Test expectations:
+
+- first decision sets current state and adds history.
+- same decision repeated does not create duplicate decision noise.
+- different decision updates current state and appends a revision event.
+- batch decision applies to all selected sources.
+- batch decision requires confirmation.
+- no external action is executed for any batch decision.
+
+### Contract A16 - Pagination / Page Size
+
+Decision:
+
+Pagination/page-size behavior is required before real data use.
+
+Behavior contract:
+
+- backend candidate/source listing should support page and page size, or equivalent offset/limit.
+- response should include metadata such as total count, current page, page size, and total pages or has-next/has-previous.
+- frontend should expose page-size and page navigation.
+- filtering alone is not sufficient.
+
+Deferred:
+
+- infinite scroll
+- server-side full text search optimization
+- large-scale indexing strategy
+
+Test expectations:
+
+- API returns paginated items and metadata.
+- page size affects number of returned rows.
+- frontend renders pagination controls.
+- frontend can move between pages or update page size.
