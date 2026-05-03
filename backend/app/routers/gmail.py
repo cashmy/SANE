@@ -19,12 +19,15 @@ from app.schemas.gmail import (
     DisconnectRequest,
     EmailAccountInfo,
     IngestionRunSummary,
+    ResetLocalDataRequest,
+    ResetLocalDataSummary,
     ScanRequest,
 )
 from app.services.auth_service import OAuthNotConfiguredError
 from app.services.gmail_service import (
     GmailAccountDisconnectedError,
     GmailAccountNotFoundError,
+    GmailResetValidationError,
     GmailScanValidationError,
     connect_gmail_account,
     disconnect_gmail_account,
@@ -33,6 +36,7 @@ from app.services.gmail_service import (
     granted_scopes,
     list_gmail_accounts,
     list_runs_for_account,
+    reset_account_local_data,
     run_ingestion_scan,
 )
 
@@ -146,6 +150,36 @@ def disconnect_gmail(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/accounts/{account_id}/reset-local-data",
+    response_model=ResetLocalDataSummary,
+    summary="Reset local SANE data for one Gmail account",
+)
+def reset_local_data(
+    account_id: int,
+    payload: ResetLocalDataRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ResetLocalDataSummary:
+    try:
+        summary = reset_account_local_data(
+            db,
+            user=user,
+            account_id=account_id,
+            mode=payload.mode,
+            confirmed=payload.confirmed,
+        )
+        return ResetLocalDataSummary.model_validate(summary)
+    except GmailAccountNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except GmailResetValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
 
 
 @router.post(

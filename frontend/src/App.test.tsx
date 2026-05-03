@@ -7,9 +7,11 @@ import type {
   AuthConfig,
   EmailAccountInfo,
   IngestionRunSummary,
+  ResetLocalDataSummary,
   UserMe,
 } from "./types/auth";
 import type {
+  DecisionListResponse,
   DecisionRecord,
   DecisionValue,
   SourceListResponse,
@@ -228,7 +230,10 @@ const createMockBackend = (options?: {
   sources?: SourceRow[];
   gmailAccounts?: EmailAccountInfo[];
   gmailRunsByAccount?: Record<number, IngestionRunSummary[]>;
+  sourceAccountIds?: Record<number, number>;
 }) => {
+  const initialSources = (options?.sources ?? seededSources).map(cloneSource);
+  const defaultAccountId = options?.gmailAccounts?.[0]?.id ?? 1;
   const state = {
     authConfig: options?.authConfig ?? defaultAuthConfig,
     currentUser:
@@ -236,10 +241,22 @@ const createMockBackend = (options?: {
       (options?.unauthenticated ? null : localAlphaUser),
     accounts: options?.gmailAccounts ?? [],
     runsByAccount: options?.gmailRunsByAccount ?? {},
-    sources: (options?.sources ?? seededSources).map(cloneSource),
+    sources: initialSources,
+    sourceAccountIds: Object.fromEntries(
+      initialSources.map((source) => [
+        source.id,
+        options?.sourceAccountIds?.[source.id] ?? defaultAccountId,
+      ]),
+    ) as Record<number, number>,
     decisions: [] as DecisionRecord[],
     nextDecisionId: 50,
     nextRunId: 1,
+  };
+
+  const parseOptionalNumber = (value: string | null) => {
+    if (!value) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
   };
 
   const synchronizeDecisionSourceState = (source: SourceRow) => {
@@ -359,6 +376,53 @@ const createMockBackend = (options?: {
       return new Response(null, { status: 204 });
     }
 
+    if (
+      /^\/api\/gmail\/accounts\/\d+\/reset-local-data$/.test(url.pathname) &&
+      method === "POST"
+    ) {
+      const accountId = Number(url.pathname.split("/").at(-2));
+      const payload = JSON.parse(String(init?.body)) as {
+        mode: "sources_only" | "sources_and_decisions";
+        confirmed: boolean;
+      };
+
+      if (!payload.confirmed) {
+        return jsonResponse(
+          {
+            detail:
+              "Explicit human confirmation is required before local data reset.",
+          },
+          { status: 400 },
+        );
+      }
+
+      if (payload.mode === "sources_only") {
+        return jsonResponse(
+          {
+            detail:
+              "Current ALPHA data model cannot preserve decisions when sources are deleted.",
+          },
+          { status: 400 },
+        );
+      }
+
+      const account = state.accounts.find((entry) => entry.id === accountId);
+      const summary: ResetLocalDataSummary = {
+        account_id: accountId,
+        account_email: account?.account_email ?? "unknown@gmail.com",
+        mode: "sources_and_decisions",
+        sources_deleted: state.sources.length,
+        decisions_deleted: state.decisions.length,
+        ingestion_runs_preserved: state.runsByAccount[accountId]?.length ?? 0,
+        ingestion_runs_deleted: 0,
+      };
+
+      state.sources = [];
+      state.decisions = [];
+
+      return jsonResponse(summary);
+    }
+
     if (url.pathname === "/api/gmail/scan" && method === "POST") {
       const payload = JSON.parse(String(init?.body)) as {
         email_account_id: number;
@@ -371,6 +435,7 @@ const createMockBackend = (options?: {
         scope: payload.scope,
         limit_count: payload.limit_count,
         message_count_scanned: payload.limit_count,
+        source_count_seen: 2,
         source_count_created: 2,
         error_summary: null,
         started_at: new Date(
@@ -402,11 +467,20 @@ const createMockBackend = (options?: {
         url.searchParams.get("include_processed") === "true";
       const page = Number(url.searchParams.get("page") ?? "1");
       const pageSize = Number(url.searchParams.get("page_size") ?? "5");
+      const emailAccountId = parseOptionalNumber(
+        url.searchParams.get("email_account_id"),
+      );
       const search = (url.searchParams.get("search") ?? "").toLowerCase();
       const category = url.searchParams.get("category") ?? "";
       const signal = url.searchParams.get("signal") ?? "";
 
       const baseFiltered = state.sources.filter((source) => {
+        if (
+          emailAccountId !== null &&
+          state.sourceAccountIds[source.id] !== emailAccountId
+        ) {
+          return false;
+        }
         if (!includeProcessed && source.processing_state !== "pending_review") {
           return false;
         }
@@ -464,9 +538,33 @@ const createMockBackend = (options?: {
     }
 
     if (url.pathname === "/api/decisions" && method === "GET") {
-      return jsonResponse({
-        items: state.decisions.map(cloneDecision),
+      const page = Number(url.searchParams.get("page") ?? "1");
+      const pageSize = Number(url.searchParams.get("page_size") ?? "5");
+      const emailAccountId = parseOptionalNumber(
+        url.searchParams.get("email_account_id"),
+      );
+      const filtered = state.decisions.filter((decision) => {
+        if (emailAccountId === null) {
+          return true;
+        }
+        return state.sourceAccountIds[decision.source.id] === emailAccountId;
       });
+      const totalItems = filtered.length;
+      const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+      const currentPage = Math.min(page, totalPages);
+      const start = (currentPage - 1) * pageSize;
+      const payload: DecisionListResponse = {
+        items: filtered.slice(start, start + pageSize).map(cloneDecision),
+        pagination: {
+          page: currentPage,
+          page_size: pageSize,
+          total_items: totalItems,
+          total_pages: totalPages,
+          has_previous: currentPage > 1,
+          has_next: currentPage < totalPages,
+        },
+      };
+      return jsonResponse(payload);
     }
 
     if (url.pathname === "/api/decisions" && method === "POST") {
@@ -648,6 +746,9 @@ describe("App", () => {
       screen.getByRole("main", { name: /connections/i }),
     ).toBeInTheDocument();
     expect(
+      screen.getByRole("button", { name: /^connect gmail$/i }),
+    ).toBeInTheDocument();
+    expect(
       vi
         .mocked(fetch)
         .mock.calls.some(([input]) =>
@@ -706,6 +807,7 @@ describe("App", () => {
               scope: "CATEGORY_PROMOTIONS",
               limit_count: 50,
               message_count_scanned: 50,
+              source_count_seen: 0,
               source_count_created: 0,
               error_summary: null,
               started_at: "2026-05-02T17:00:00.000Z",
@@ -723,6 +825,110 @@ describe("App", () => {
         name: /last scan completed with no review sources/i,
       }),
     ).toBeInTheDocument();
+  });
+
+  it("Review supports mailbox scoping and bounded evidence expansion", async () => {
+    vi.mocked(fetch).mockImplementation(
+      createMockBackend({
+        currentUser: signedInUser,
+        sources: seededSources.slice(0, 4),
+        gmailAccounts: [
+          {
+            id: 42,
+            provider: "gmail",
+            account_email: "primary@gmail.com",
+            display_name: "Primary Gmail",
+            connection_status: "connected",
+            granted_scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+          },
+          {
+            id: 43,
+            provider: "gmail",
+            account_email: "secondary@gmail.com",
+            display_name: "Secondary Gmail",
+            connection_status: "connected",
+            granted_scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+          },
+        ],
+        gmailRunsByAccount: {
+          42: [
+            {
+              id: 1,
+              status: "completed",
+              scope: "CATEGORY_PROMOTIONS",
+              limit_count: 50,
+              message_count_scanned: 50,
+              source_count_seen: 2,
+              source_count_created: 2,
+              error_summary: null,
+              started_at: "2026-05-02T17:00:00.000Z",
+              completed_at: "2026-05-02T17:01:00.000Z",
+            },
+          ],
+          43: [
+            {
+              id: 2,
+              status: "completed",
+              scope: "CATEGORY_PROMOTIONS",
+              limit_count: 50,
+              message_count_scanned: 25,
+              source_count_seen: 2,
+              source_count_created: 2,
+              error_summary: null,
+              started_at: "2026-05-02T18:00:00.000Z",
+              completed_at: "2026-05-02T18:01:00.000Z",
+            },
+          ],
+        },
+        sourceAccountIds: {
+          1: 42,
+          2: 43,
+          3: 42,
+          4: 43,
+        },
+      }),
+    );
+
+    render(<App />);
+
+    const table = await screen.findByRole("table", {
+      name: /source review queue/i,
+    });
+    expect(
+      screen.getByText(/review stays scoped to one gmail account at a time/i),
+    ).toBeInTheDocument();
+    expect(
+      within(table).getByText(/daily deals dispatch/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/routine platform bulletin/i),
+    ).not.toBeInTheDocument();
+
+    const dailyDealsRow = within(table)
+      .getByText(/daily deals dispatch/i)
+      .closest("tr");
+    expect(dailyDealsRow).not.toBeNull();
+
+    await userEvent.click(
+      within(dailyDealsRow as HTMLElement).getByRole("button", {
+        name: /show evidence/i,
+      }),
+    );
+
+    expect(screen.getByText(/sender domains/i)).toBeInTheDocument();
+    expect(screen.getByText(/^dailydeals\.example$/i)).toBeInTheDocument();
+
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /review mailbox scope/i }),
+      "43",
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/routine platform bulletin/i),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/daily deals dispatch/i)).not.toBeInTheDocument();
   });
 
   it("pagination and page size controls change the displayed sources", async () => {
@@ -843,6 +1049,145 @@ describe("App", () => {
     expect(
       within(updatedTable).getAllByText(/daily deals dispatch/i).length,
     ).toBeGreaterThan(1);
+  });
+
+  it("Decisions supports mailbox scoping, pagination, and page size controls", async () => {
+    vi.mocked(fetch).mockImplementation(
+      createMockBackend({
+        currentUser: signedInUser,
+        gmailAccounts: [
+          {
+            id: 42,
+            provider: "gmail",
+            account_email: "primary@gmail.com",
+            display_name: "Primary Gmail",
+            connection_status: "connected",
+            granted_scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+          },
+          {
+            id: 43,
+            provider: "gmail",
+            account_email: "secondary@gmail.com",
+            display_name: "Secondary Gmail",
+            connection_status: "connected",
+            granted_scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+          },
+        ],
+        gmailRunsByAccount: {
+          42: [
+            {
+              id: 1,
+              status: "completed",
+              scope: "CATEGORY_PROMOTIONS",
+              limit_count: 50,
+              message_count_scanned: 50,
+              source_count_seen: 6,
+              source_count_created: 6,
+              error_summary: null,
+              started_at: "2026-05-02T17:00:00.000Z",
+              completed_at: "2026-05-02T17:01:00.000Z",
+            },
+          ],
+          43: [
+            {
+              id: 2,
+              status: "completed",
+              scope: "CATEGORY_PROMOTIONS",
+              limit_count: 50,
+              message_count_scanned: 20,
+              source_count_seen: 0,
+              source_count_created: 0,
+              error_summary: null,
+              started_at: "2026-05-02T18:00:00.000Z",
+              completed_at: "2026-05-02T18:01:00.000Z",
+            },
+          ],
+        },
+        sourceAccountIds: {
+          1: 42,
+          2: 42,
+          3: 42,
+          4: 42,
+          5: 42,
+          6: 42,
+          7: 43,
+          8: 43,
+        },
+      }),
+    );
+
+    render(<App />);
+
+    await screen.findByRole("table", { name: /source review queue/i });
+
+    await userEvent.click(
+      screen.getByRole("checkbox", {
+        name: /select all sources on this page/i,
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /apply mark as low value/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/5 sources updated/i)).toBeInTheDocument();
+    });
+
+    await userEvent.click(
+      screen.getByRole("checkbox", {
+        name: /select all sources on this page/i,
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /apply mark as low value/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 source updated/i)).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /decisions/i }));
+
+    await screen.findByRole("table", { name: /source decision history/i });
+    expect(
+      screen.getByText(
+        /decision history stays scoped to one gmail account at a time/i,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/page 1 of 2/i)).toBeInTheDocument();
+    expect(screen.getByText(/6 history events/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /^next$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/page 2 of 2/i)).toBeInTheDocument();
+    });
+
+    await userEvent.selectOptions(
+      screen.getByLabelText(/decision page size/i),
+      "10",
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/page 1 of 1/i)).toBeInTheDocument();
+    });
+
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /decision mailbox scope/i }),
+      "43",
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("table", { name: /source decision history/i }),
+      ).not.toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("heading", { name: /secondary@gmail.com/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /go to connections|go to review/i }),
+    ).toBeInTheDocument();
   });
 
   it("Decisions shows a clear authenticated empty state before Gmail is connected", async () => {
@@ -1046,6 +1391,7 @@ describe("App", () => {
               scope: "CATEGORY_PROMOTIONS",
               limit_count: 50,
               message_count_scanned: 50,
+              source_count_seen: 4,
               source_count_created: 4,
               error_summary: null,
               started_at: "2026-05-02T17:00:00.000Z",
@@ -1066,6 +1412,17 @@ describe("App", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/gmail read-only/i)).toBeInTheDocument();
     expect(
+      screen.getByText(
+        /refreshes local sane review data only and does not modify gmail/i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/50 messages, 4 new sources, 4 sources seen/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /add gmail account/i }),
+    ).toBeInTheDocument();
+    expect(
       screen.getByRole("button", { name: /scan now/i }),
     ).toBeInTheDocument();
     expect(
@@ -1075,5 +1432,155 @@ describe("App", () => {
           String(input).includes("/api/gmail/scan"),
         ),
     ).toBe(false);
+  });
+
+  it("Connections reset dialog can be cancelled without an API call", async () => {
+    vi.mocked(fetch).mockImplementation(
+      createMockBackend({
+        currentUser: signedInUser,
+        gmailAccounts: [
+          {
+            id: 42,
+            provider: "gmail",
+            account_email: "person@gmail.com",
+            display_name: "person@gmail.com",
+            connection_status: "connected",
+            granted_scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+          },
+        ],
+        gmailRunsByAccount: {
+          42: [
+            {
+              id: 1,
+              status: "completed",
+              scope: "CATEGORY_PROMOTIONS",
+              limit_count: 50,
+              message_count_scanned: 50,
+              source_count_seen: 4,
+              source_count_created: 4,
+              error_summary: null,
+              started_at: "2026-05-02T17:00:00.000Z",
+              completed_at: "2026-05-02T17:01:00.000Z",
+            },
+          ],
+        },
+      }),
+    );
+
+    render(<App />);
+
+    await screen.findByRole("table", { name: /source review queue/i });
+    await userEvent.click(screen.getByRole("button", { name: /connections/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /more/i }));
+    await userEvent.click(
+      screen.getByRole("menuitem", { name: /reset local data/i }),
+    );
+
+    expect(
+      await screen.findByRole("dialog", {
+        name: /reset local data for person@gmail.com/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /this only clears sane's local data for this gmail account\. it does not modify gmail, unsubscribe, delete, archive, or disconnect the mailbox\./i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /current alpha data model cannot preserve decisions when sources are deleted\./i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("radio", { name: /clear sources only/i }),
+    ).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: /cancel/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(([input]) =>
+          String(input).includes("/reset-local-data"),
+        ),
+    ).toBe(false);
+  });
+
+  it("Connections reset clears local data while keeping Gmail connected", async () => {
+    vi.mocked(fetch).mockImplementation(
+      createMockBackend({
+        currentUser: signedInUser,
+        gmailAccounts: [
+          {
+            id: 42,
+            provider: "gmail",
+            account_email: "person@gmail.com",
+            display_name: "person@gmail.com",
+            connection_status: "connected",
+            granted_scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+          },
+        ],
+        gmailRunsByAccount: {
+          42: [
+            {
+              id: 1,
+              status: "completed",
+              scope: "CATEGORY_PROMOTIONS",
+              limit_count: 50,
+              message_count_scanned: 50,
+              source_count_seen: 4,
+              source_count_created: 4,
+              error_summary: null,
+              started_at: "2026-05-02T17:00:00.000Z",
+              completed_at: "2026-05-02T17:01:00.000Z",
+            },
+          ],
+        },
+      }),
+    );
+
+    render(<App />);
+
+    await screen.findByRole("table", { name: /source review queue/i });
+    await userEvent.click(screen.getByRole("button", { name: /connections/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /more/i }));
+    await userEvent.click(
+      screen.getByRole("menuitem", { name: /reset local data/i }),
+    );
+
+    const confirm = await screen.findByRole("checkbox", {
+      name: /i understand this clears local sane data/i,
+    });
+    const submit = screen.getByRole("button", { name: /clear local data/i });
+
+    expect(submit).toBeDisabled();
+
+    await userEvent.click(confirm);
+    expect(submit).toBeEnabled();
+
+    await userEvent.click(submit);
+
+    expect(
+      await screen.findByText(
+        /local sane data reset for person@gmail.com: 8 sources deleted, 0 decisions deleted, 1 ingestion run preserved\. gmail connection and credentials were not changed\./i,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/connected/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /scan now/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /disconnect/i }),
+    ).toBeInTheDocument();
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(([input]) =>
+          String(input).includes("/api/gmail/accounts/42/reset-local-data"),
+        ),
+    ).toBe(true);
   });
 });

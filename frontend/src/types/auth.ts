@@ -37,8 +37,21 @@ export interface IngestionRunSummary {
   scope: string | null;
   limit_count: number | null;
   message_count_scanned: number;
+  source_count_seen: number;
   source_count_created: number;
   error_summary: string | null;
   started_at: string | null;
   completed_at: string | null;
+}
+
+export type ResetLocalDataMode = "sources_only" | "sources_and_decisions";
+
+export interface ResetLocalDataSummary {
+  account_id: number;
+  account_email: string;
+  mode: ResetLocalDataMode;
+  sources_deleted: number;
+  decisions_deleted: number;
+  ingestion_runs_preserved: number;
+  ingestion_runs_deleted: number;
 }

@@ -5,6 +5,7 @@ import {
   createDecision,
   listEmailAccounts,
   listSources,
+  resetGmailAccountLocalData,
 } from "./api";
 
 const jsonResponse = (body: unknown, init?: ResponseInit) =>
@@ -155,6 +156,37 @@ describe("workflow api client", () => {
       expect.objectContaining({
         credentials: "include",
         method: "GET",
+      }),
+    );
+  });
+
+  it("posts reset-local-data payloads to the Gmail account reset endpoint", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        account_id: 12,
+        account_email: "person@gmail.com",
+        mode: "sources_and_decisions",
+        sources_deleted: 8,
+        decisions_deleted: 3,
+        ingestion_runs_preserved: 2,
+        ingestion_runs_deleted: 0,
+      }),
+    );
+
+    await resetGmailAccountLocalData(12, {
+      mode: "sources_and_decisions",
+      confirmed: true,
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/gmail/accounts/12/reset-local-data",
+      expect.objectContaining({
+        credentials: "include",
+        method: "POST",
+        body: JSON.stringify({
+          mode: "sources_and_decisions",
+          confirmed: true,
+        }),
       }),
     );
   });

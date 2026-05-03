@@ -44,6 +44,12 @@ class SourceListResult:
 
 
 @dataclass
+class DecisionListResult:
+    items: list[Decision]
+    pagination: PaginationResult
+
+
+@dataclass
 class DecisionWriteResult:
     decision: Decision
     applied: bool
@@ -105,23 +111,17 @@ def list_sources(
     search: str | None = None,
     category: str | None = None,
     signal: CandidateSignal | None = None,
+    email_account_id: int | None = None,
 ) -> SourceListResult:
-    account = (
-        ensure_demo_candidates(db)
-        if user.is_local_alpha
-        else _get_first_account_or_none(db, user.id)
+    account = _get_list_account_or_none(
+        db,
+        user=user,
+        email_account_id=email_account_id,
     )
     if account is None:
         return SourceListResult(
             items=[],
-            pagination=PaginationResult(
-                page=1,
-                page_size=page_size,
-                total_items=0,
-                total_pages=1,
-                has_previous=False,
-                has_next=False,
-            ),
+            pagination=_empty_pagination(page_size=page_size),
             available_categories=[],
         )
 
@@ -186,20 +186,55 @@ def list_sources(
     )
 
 
-def list_decisions(db: Session, *, user: User) -> list[Decision]:
-    if user.is_local_alpha:
-        account = ensure_demo_candidates(db)
-        decision_user_id = account.user_id
-    else:
-        decision_user_id = user.id
+def list_decisions(
+    db: Session,
+    *,
+    user: User,
+    page: int = 1,
+    page_size: int = 5,
+    email_account_id: int | None = None,
+) -> DecisionListResult:
+    account = _get_list_account_or_none(
+        db,
+        user=user,
+        email_account_id=email_account_id,
+    )
+    if account is None:
+        return DecisionListResult(
+            items=[],
+            pagination=_empty_pagination(page_size=page_size),
+        )
+
+    filters = [
+        Decision.user_id == account.user_id,
+        Decision.candidate.has(Candidate.email_account_id == account.id),
+    ]
+    total_items = (
+        db.scalar(select(func.count()).select_from(Decision).where(*filters)) or 0
+    )
+    total_pages = max(1, ceil(total_items / page_size))
+    current_page = min(page, total_pages)
+    offset = (current_page - 1) * page_size
 
     statement = (
         select(Decision)
         .options(selectinload(Decision.candidate).selectinload(Candidate.decisions))
-        .where(Decision.user_id == decision_user_id)
+        .where(*filters)
         .order_by(Decision.created_at.desc(), Decision.id.desc())
+        .offset(offset)
+        .limit(page_size)
     )
-    return list(db.scalars(statement).all())
+    return DecisionListResult(
+        items=list(db.scalars(statement).all()),
+        pagination=PaginationResult(
+            page=current_page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+            has_previous=current_page > 1,
+            has_next=current_page < total_pages,
+        ),
+    )
 
 
 def record_decision(
@@ -208,26 +243,18 @@ def record_decision(
     user: User,
     payload: DecisionCreate,
 ) -> DecisionWriteResult:
-    account = (
-        ensure_demo_candidates(db)
-        if user.is_local_alpha
-        else _get_first_account_or_none(db, user.id)
-    )
-
     if not payload.confirmed:
         raise HumanApprovalRequiredError(
             "Explicit human confirmation is required before a decision is recorded."
         )
 
-    if account is None:
-        raise CandidateNotFoundError(f"Source {payload.source_id} was not found.")
-
-    candidate = _get_source_or_raise(db, payload.source_id, account.id)
+    decision_user_id = _get_decision_user_id(db, user)
+    candidate = _get_source_for_user_or_raise(db, payload.source_id, decision_user_id)
 
     result = _apply_decision(
         db,
         candidate=candidate,
-        user_id=account.user_id,
+        user_id=decision_user_id,
         decision_value=payload.decision,
         note=payload.note,
     )
@@ -235,7 +262,7 @@ def record_decision(
         db.commit()
 
     return DecisionWriteResult(
-        decision=_load_decision(db, result.decision.id, account.user_id),
+        decision=_load_decision(db, result.decision.id, decision_user_id),
         applied=result.applied,
     )
 
@@ -246,27 +273,20 @@ def record_batch_decision(
     user: User,
     payload: BatchDecisionCreate,
 ) -> BatchDecisionResult:
-    account = (
-        ensure_demo_candidates(db)
-        if user.is_local_alpha
-        else _get_first_account_or_none(db, user.id)
-    )
-
     if not payload.confirmed:
         raise HumanApprovalRequiredError(
             "Explicit human confirmation is required before a decision is recorded."
         )
 
-    if account is None:
-        missing_id = payload.source_ids[0] if payload.source_ids else 0
-        raise CandidateNotFoundError(f"Source {missing_id} was not found.")
-
+    decision_user_id = _get_decision_user_id(db, user)
     source_ids = list(dict.fromkeys(payload.source_ids))
     sources = list(
         db.scalars(
-            select(Candidate).where(
+            select(Candidate)
+            .join(EmailAccount, Candidate.email_account_id == EmailAccount.id)
+            .where(
                 Candidate.id.in_(source_ids),
-                Candidate.email_account_id == account.id,
+                EmailAccount.user_id == decision_user_id,
             )
         ).all()
     )
@@ -283,7 +303,7 @@ def record_batch_decision(
         result = _apply_decision(
             db,
             candidate=sources_by_id[source_id],
-            user_id=account.user_id,
+            user_id=decision_user_id,
             decision_value=payload.decision,
             note=payload.note,
         )
@@ -296,8 +316,8 @@ def record_batch_decision(
         db.commit()
 
     return BatchDecisionResult(
-        applied=_ordered_decisions(db, applied_ids, account.user_id),
-        unchanged=_ordered_decisions(db, unchanged_ids, account.user_id),
+        applied=_ordered_decisions(db, applied_ids, decision_user_id),
+        unchanged=_ordered_decisions(db, unchanged_ids, decision_user_id),
     )
 
 
@@ -309,13 +329,26 @@ def _candidate_state_for_decision(decision: DecisionValue) -> CandidateState:
     return CandidateState.action_recommended
 
 
-def _get_source_or_raise(
-    db: Session, source_id: int, email_account_id: int
+def _empty_pagination(*, page_size: int) -> PaginationResult:
+    return PaginationResult(
+        page=1,
+        page_size=page_size,
+        total_items=0,
+        total_pages=1,
+        has_previous=False,
+        has_next=False,
+    )
+
+
+def _get_source_for_user_or_raise(
+    db: Session, source_id: int, user_id: int
 ) -> Candidate:
     source = db.scalar(
-        select(Candidate).where(
+        select(Candidate)
+        .join(EmailAccount, Candidate.email_account_id == EmailAccount.id)
+        .where(
             Candidate.id == source_id,
-            Candidate.email_account_id == email_account_id,
+            EmailAccount.user_id == user_id,
         )
     )
     if source is None:
@@ -390,6 +423,35 @@ def _ordered_decisions(
     )
     by_id = {decision.id: decision for decision in decisions}
     return [by_id[decision_id] for decision_id in decision_ids if decision_id in by_id]
+
+
+def _get_decision_user_id(db: Session, user: User) -> int:
+    if user.is_local_alpha:
+        return ensure_demo_candidates(db).user_id
+    return user.id
+
+
+def _get_list_account_or_none(
+    db: Session,
+    *,
+    user: User,
+    email_account_id: int | None,
+) -> EmailAccount | None:
+    if user.is_local_alpha:
+        account = ensure_demo_candidates(db)
+        if email_account_id is not None and email_account_id != account.id:
+            return None
+        return account
+
+    if email_account_id is not None:
+        return db.scalar(
+            select(EmailAccount).where(
+                EmailAccount.user_id == user.id,
+                EmailAccount.id == email_account_id,
+            )
+        )
+
+    return _get_first_account_or_none(db, user.id)
 
 
 def _get_first_account_or_none(db: Session, user_id: int) -> EmailAccount | None:

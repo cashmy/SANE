@@ -96,6 +96,7 @@ class DecisionRead(BaseModel):
 
 class DecisionListResponse(BaseModel):
     items: list[DecisionRead]
+    pagination: PaginationMeta
 
 
 class BatchDecisionResponse(BaseModel):

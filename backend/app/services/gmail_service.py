@@ -8,12 +8,13 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.security import decrypt_credential, encrypt_credential
 from app.models.candidate import Candidate
+from app.models.decision import Decision
 from app.models.email_account import EmailAccount
 from app.models.enums import (
     ConnectionStatus,
@@ -47,14 +48,32 @@ class GmailScanValidationError(ValueError):
     pass
 
 
+class GmailResetValidationError(ValueError):
+    pass
+
+
 @dataclass
 class _NormalizedSource:
     source_key: str
     source_name: str
     sender_email: str
+    sender_domain: str
     representative_subject: str
     mailbox_category: str
     message_count: int
+    representative_message_id: str
+    recent_message_timestamp: int | None
+
+
+@dataclass
+class LocalDataResetSummary:
+    account_id: int
+    account_email: str
+    mode: str
+    sources_deleted: int
+    decisions_deleted: int
+    ingestion_runs_preserved: int
+    ingestion_runs_deleted: int = 0
 
 
 def get_gmail_connect_url(state: str) -> str:
@@ -189,6 +208,81 @@ def disconnect_gmail_account(
     return account
 
 
+def reset_account_local_data(
+    db: Session,
+    *,
+    user: User,
+    account_id: int,
+    mode: str,
+    confirmed: bool,
+) -> LocalDataResetSummary:
+    if not confirmed:
+        raise GmailResetValidationError(
+            "Explicit human confirmation is required before local data reset."
+        )
+    if mode == "sources_only":
+        raise GmailResetValidationError(
+            "Current ALPHA data model cannot preserve decisions when sources are deleted."
+        )
+    if mode != "sources_and_decisions":
+        raise GmailResetValidationError(
+            "Reset mode must be 'sources_only' or 'sources_and_decisions'."
+        )
+
+    account = _get_user_gmail_account_or_raise(db, user=user, account_id=account_id)
+
+    sources_deleted = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Candidate)
+            .where(Candidate.email_account_id == account.id)
+        )
+        or 0
+    )
+    decisions_deleted = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Decision)
+            .join(Candidate, Decision.candidate_id == Candidate.id)
+            .where(
+                Candidate.email_account_id == account.id,
+                Decision.user_id == user.id,
+            )
+        )
+        or 0
+    )
+    ingestion_runs_preserved = int(
+        db.scalar(
+            select(func.count())
+            .select_from(IngestionRun)
+            .where(
+                IngestionRun.email_account_id == account.id,
+                IngestionRun.user_id == user.id,
+            )
+        )
+        or 0
+    )
+
+    candidates = list(
+        db.scalars(
+            select(Candidate).where(Candidate.email_account_id == account.id)
+        ).all()
+    )
+    for candidate in candidates:
+        db.delete(candidate)
+
+    db.commit()
+
+    return LocalDataResetSummary(
+        account_id=account.id,
+        account_email=account.account_email,
+        mode=mode,
+        sources_deleted=sources_deleted,
+        decisions_deleted=decisions_deleted,
+        ingestion_runs_preserved=ingestion_runs_preserved,
+    )
+
+
 def store_gmail_credentials(
     db: Session,
     account: EmailAccount,
@@ -299,14 +393,19 @@ def run_ingestion_scan(
             if current is None:
                 grouped_sources[normalized.source_key] = normalized
             else:
-                current.message_count += 1
+                grouped_sources[normalized.source_key] = _merge_normalized_source(
+                    current,
+                    normalized,
+                )
 
         created_count = 0
+        seen_count = len(grouped_sources)
         for normalized in grouped_sources.values():
             created_count += _upsert_candidate(db, account=account, source=normalized)
 
         run.status = IngestionStatus.completed
         run.message_count_scanned = len(message_ids)
+        run.source_count_seen = seen_count
         run.source_count_created = created_count
         run.completed_at = datetime.now(timezone.utc)
         db.commit()
@@ -393,10 +492,13 @@ def _normalize_message(
     }
     from_name, from_email = parseaddr(headers.get("From", ""))
     sender_email = from_email.strip().lower() or "unknown-source@sane.local"
-    source_name = from_name.strip() or sender_email
+    sender_domain = _sender_domain(sender_email)
+    source_name = _normalized_source_name(from_name, sender_domain, sender_email)
     subject = _truncate(
         headers.get("Subject") or metadata.get("snippet") or "(no subject)", 255
     )
+    representative_message_id = str(metadata.get("id") or sender_email)
+    recent_message_timestamp = _parse_internal_timestamp(metadata)
 
     category = _SCOPE_LABELS.get(default_scope, "Promotions")
     if "CATEGORY_PROMOTIONS" not in metadata.get("labelIds", []):
@@ -407,10 +509,76 @@ def _normalize_message(
         source_key=source_key,
         source_name=_truncate(source_name, 140),
         sender_email=sender_email,
+        sender_domain=sender_domain,
         representative_subject=subject,
         mailbox_category=category,
         message_count=1,
+        representative_message_id=representative_message_id,
+        recent_message_timestamp=recent_message_timestamp,
     )
+
+
+def _merge_normalized_source(
+    current: _NormalizedSource,
+    candidate: _NormalizedSource,
+) -> _NormalizedSource:
+    current.message_count += candidate.message_count
+
+    if _should_replace_representative(current, candidate):
+        current.source_name = candidate.source_name
+        current.representative_subject = candidate.representative_subject
+        current.representative_message_id = candidate.representative_message_id
+        current.recent_message_timestamp = candidate.recent_message_timestamp
+
+    return current
+
+
+def _should_replace_representative(
+    current: _NormalizedSource,
+    candidate: _NormalizedSource,
+) -> bool:
+    current_key = (
+        current.recent_message_timestamp
+        if current.recent_message_timestamp is not None
+        else -1,
+        current.representative_message_id,
+    )
+    candidate_key = (
+        candidate.recent_message_timestamp
+        if candidate.recent_message_timestamp is not None
+        else -1,
+        candidate.representative_message_id,
+    )
+    return candidate_key > current_key
+
+
+def _normalized_source_name(
+    display_name: str,
+    sender_domain: str,
+    sender_email: str,
+) -> str:
+    normalized_display = display_name.strip().strip('"')
+    if normalized_display and normalized_display.lower() != sender_email:
+        return normalized_display
+    if sender_domain:
+        return sender_domain
+    return sender_email
+
+
+def _sender_domain(sender_email: str) -> str:
+    if "@" not in sender_email:
+        return "unknown-source.sane.local"
+    return sender_email.split("@", maxsplit=1)[1].strip().lower()
+
+
+def _parse_internal_timestamp(metadata: dict[str, Any]) -> int | None:
+    internal_date = metadata.get("internalDate")
+    try:
+        if internal_date is None:
+            return None
+        return int(str(internal_date))
+    except (TypeError, ValueError):
+        return None
 
 
 def _upsert_candidate(

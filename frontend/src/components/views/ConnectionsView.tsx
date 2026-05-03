@@ -5,11 +5,19 @@ import {
   disconnectGmailAccount,
   listEmailAccounts,
   listIngestionRuns,
+  resetGmailAccountLocalData,
   triggerScan,
 } from "../../services/api";
-import type { EmailAccountInfo, IngestionRunSummary } from "../../types/auth";
+import type {
+  EmailAccountInfo,
+  IngestionRunSummary,
+  ResetLocalDataMode,
+} from "../../types/auth";
 
 const SCAN_LIMIT_OPTIONS = [50, 100, 200] as const;
+
+const pluralize = (count: number, singular: string, plural = `${singular}s`) =>
+  count === 1 ? singular : plural;
 
 const formatTimestamp = (value: string | null) => {
   if (!value) {
@@ -58,6 +66,12 @@ const toErrorMessage = (error: unknown) => {
   return "Connections could not be loaded.";
 };
 
+const formatRunCounts = (run: IngestionRunSummary) => {
+  const created = `${run.source_count_created} new ${pluralize(run.source_count_created, "source")}`;
+  const seen = `${run.source_count_seen} ${pluralize(run.source_count_seen, "source")} seen`;
+  return `${created}, ${seen}`;
+};
+
 export function ConnectionsView() {
   const [accounts, setAccounts] = useState<EmailAccountInfo[]>([]);
   const [runsByAccount, setRunsByAccount] = useState<
@@ -68,6 +82,14 @@ export function ConnectionsView() {
   );
   const [isLoading, setIsLoading] = useState(true);
   const [activeAccountId, setActiveAccountId] = useState<number | null>(null);
+  const [moreMenuAccountId, setMoreMenuAccountId] = useState<number | null>(
+    null,
+  );
+  const [resetDialog, setResetDialog] = useState<{
+    accountId: number;
+    mode: ResetLocalDataMode;
+    acknowledged: boolean;
+  } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -157,7 +179,7 @@ export function ConnectionsView() {
         [accountId]: [run, ...(current[accountId] ?? [])],
       }));
       setStatusMessage(
-        `Scan completed: ${run.message_count_scanned} messages checked, ${run.source_count_created} sources created.`,
+        `Scan completed: ${run.message_count_scanned} messages checked, ${formatRunCounts(run)}. SANE refreshed local review data only; Gmail was not modified.`,
       );
     } catch (error) {
       setErrorMessage(toErrorMessage(error));
@@ -165,6 +187,57 @@ export function ConnectionsView() {
       setActiveAccountId(null);
     }
   };
+
+  const openResetDialog = (accountId: number) => {
+    setMoreMenuAccountId(null);
+    setErrorMessage(null);
+    setStatusMessage(null);
+    setResetDialog({
+      accountId,
+      mode: "sources_and_decisions",
+      acknowledged: false,
+    });
+  };
+
+  const closeResetDialog = () => {
+    setResetDialog(null);
+  };
+
+  const handleResetLocalData = async (account: EmailAccountInfo) => {
+    if (
+      resetDialog === null ||
+      resetDialog.accountId !== account.id ||
+      !resetDialog.acknowledged
+    ) {
+      return;
+    }
+
+    setActiveAccountId(account.id);
+    setErrorMessage(null);
+    setStatusMessage(null);
+
+    try {
+      const summary = await resetGmailAccountLocalData(account.id, {
+        mode: resetDialog.mode,
+        confirmed: true,
+      });
+      setStatusMessage(
+        `Local SANE data reset for ${summary.account_email}: ${summary.sources_deleted} ${pluralize(summary.sources_deleted, "source")} deleted, ${summary.decisions_deleted} ${pluralize(summary.decisions_deleted, "decision")} deleted, ${summary.ingestion_runs_preserved} ${pluralize(summary.ingestion_runs_preserved, "ingestion run")} preserved. Gmail connection and credentials were not changed.`,
+      );
+      setResetDialog(null);
+      setMoreMenuAccountId(null);
+    } catch (error) {
+      setErrorMessage(toErrorMessage(error));
+    } finally {
+      setActiveAccountId(null);
+    }
+  };
+
+  const topLevelConnectLabel = isLoading
+    ? "Loading connections..."
+    : accounts.length > 0
+      ? "Add Gmail Account"
+      : "Connect Gmail";
 
   return (
     <div className="connections-view" aria-label="Connections">
@@ -174,15 +247,17 @@ export function ConnectionsView() {
           <p>
             App sign-in tells SANE who you are. Gmail connection is separate,
             grants read-only mailbox access, and scans only run when you click
-            Scan Now.
+            Scan Now. Scanning refreshes local SANE review data only and does
+            not modify Gmail.
           </p>
         </div>
         <button
           className="btn-primary"
           type="button"
           onClick={startGmailConnect}
+          disabled={isLoading}
         >
-          Connect Gmail
+          {topLevelConnectLabel}
         </button>
       </section>
 
@@ -215,6 +290,8 @@ export function ConnectionsView() {
         const lastRun = runsByAccount[account.id]?.[0] ?? null;
         const isWorking = activeAccountId === account.id;
         const isConnected = account.connection_status === "connected";
+        const isResetDialogOpen = resetDialog?.accountId === account.id;
+        const isMoreMenuOpen = moreMenuAccountId === account.id;
 
         return (
           <article className="connection-card" key={account.id}>
@@ -250,10 +327,7 @@ export function ConnectionsView() {
             {lastRun ? (
               <div className="connection-run-summary">
                 <span className="chip chip--neutral">{lastRun.status}</span>
-                <span>
-                  {lastRun.message_count_scanned} messages,{" "}
-                  {lastRun.source_count_created} sources
-                </span>
+                <span>{`${lastRun.message_count_scanned} messages, ${formatRunCounts(lastRun)}`}</span>
               </div>
             ) : null}
 
@@ -312,7 +386,140 @@ export function ConnectionsView() {
               >
                 Disconnect
               </button>
+
+              <div className="connection-card__overflow">
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={isMoreMenuOpen}
+                  onClick={() => {
+                    setMoreMenuAccountId((current) =>
+                      current === account.id ? null : account.id,
+                    );
+                  }}
+                  disabled={isWorking}
+                >
+                  More
+                </button>
+                {isMoreMenuOpen ? (
+                  <div className="connection-card__menu" role="menu">
+                    <button
+                      className="connection-card__menu-item"
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        openResetDialog(account.id);
+                      }}
+                    >
+                      Reset local data...
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
+
+            {isResetDialogOpen ? (
+              <section
+                className="connection-reset-dialog"
+                role="dialog"
+                aria-labelledby={`reset-local-data-title-${account.id}`}
+                aria-describedby={`reset-local-data-copy-${account.id}`}
+              >
+                <div>
+                  <h4 id={`reset-local-data-title-${account.id}`}>
+                    Reset local data for {account.account_email}
+                  </h4>
+                  <p id={`reset-local-data-copy-${account.id}`}>
+                    This only clears SANE's local data for this Gmail account.
+                    It does not modify Gmail, unsubscribe, delete, archive, or
+                    disconnect the mailbox.
+                  </p>
+                </div>
+
+                <div className="reset-options" aria-label="Reset options">
+                  <label className="reset-option reset-option--disabled">
+                    <input type="radio" checked={false} disabled />
+                    <div>
+                      <strong>Clear sources only</strong>
+                      <p>
+                        Current ALPHA data model cannot preserve decisions when
+                        sources are deleted.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className="reset-option">
+                    <input
+                      type="radio"
+                      name={`reset-mode-${account.id}`}
+                      checked={resetDialog.mode === "sources_and_decisions"}
+                      onChange={() => {
+                        setResetDialog((current) =>
+                          current === null
+                            ? current
+                            : {
+                                ...current,
+                                mode: "sources_and_decisions",
+                              },
+                        );
+                      }}
+                    />
+                    <div>
+                      <strong>Clear sources and decisions</strong>
+                      <p>
+                        Delete local review sources and related decision history
+                        for this Gmail account only. Ingestion run history is
+                        preserved.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                <label className="reset-dialog__confirm">
+                  <input
+                    type="checkbox"
+                    checked={resetDialog.acknowledged}
+                    onChange={(event) => {
+                      setResetDialog((current) =>
+                        current === null
+                          ? current
+                          : {
+                              ...current,
+                              acknowledged: event.target.checked,
+                            },
+                      );
+                    }}
+                  />
+                  <span>
+                    I understand this clears local SANE data for this Gmail
+                    account only and leaves Gmail, credentials, and other
+                    accounts unchanged.
+                  </span>
+                </label>
+
+                <div className="reset-dialog__actions">
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    onClick={closeResetDialog}
+                    disabled={isWorking}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn-danger"
+                    type="button"
+                    onClick={() => {
+                      void handleResetLocalData(account);
+                    }}
+                    disabled={isWorking || !resetDialog.acknowledged}
+                  >
+                    {isWorking ? "Resetting..." : "Clear local data"}
+                  </button>
+                </div>
+              </section>
+            ) : null}
           </article>
         );
       })}

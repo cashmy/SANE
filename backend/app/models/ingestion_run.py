@@ -51,6 +51,7 @@ class IngestionRun(Base):
         DateTime(timezone=True), nullable=True
     )
     message_count_scanned: Mapped[int] = mapped_column(Integer, default=0)
+    source_count_seen: Mapped[int] = mapped_column(Integer, default=0)
     source_count_created: Mapped[int] = mapped_column(Integer, default=0)
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

@@ -72,6 +72,7 @@ export interface SourceListResponse {
 
 export interface DecisionListResponse {
   items: DecisionRecord[];
+  pagination: PaginationMeta;
 }
 
 export interface DecisionCreateRequest {

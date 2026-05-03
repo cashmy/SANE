@@ -12,16 +12,21 @@ The fuller RBA/process version lives in the SANE-RBA artifact set.
 
 ## Current Validation
 
-Latest validation after Prompt 09b:
+Latest validation after Prompt 11:
 
 ```text
-backend: python -m pytest -> 54 passed
-frontend: npm run test:run -> 21 passed
+backend: python -m pytest -> 65 passed
+frontend: npm run test:run -> 26 passed
 frontend: npm run build -> passed
-alembic head/current -> 0006_gmail_credential_storage
+alembic head/current -> 0007_run_seen_count
 live Google sign-in -> succeeded
 live Gmail readonly connection -> succeeded
-manual CATEGORY_PROMOTIONS scan -> 50 messages checked, 32 sources created
+live account local reset -> 32 sources deleted, 12 decisions deleted, 3 ingestion runs preserved
+manual CATEGORY_PROMOTIONS scan after reset -> 50 messages checked, 31 sources created
+Review after reset/rescan -> 31 pending sources loaded
+Prompt 11 live browser validation -> passed using already-ingested live Gmail-derived data
+Prompt 11 validation state -> 29 pending sources, 6 decision events, Gmail unchanged
+Prompt 11b Playwright E2E smoke -> 3 passed
 ```
 
 Validation note:
@@ -41,6 +46,10 @@ Validation note:
 - A development-only Local ALPHA auth bypass now restores local UI/workflow review without weakening production auth.
 - Auth/runtime status and display mode controls are now visually separated, and the persistent sidebar auth block is quieter for local-dev review.
 - Authenticated first-run Review and Decisions states now guide signed-in users toward Connections and explicit manual scans without triggering scan-on-render.
+- Connections now makes rescan semantics explicit and reports both new sources created and sources seen during bounded scans.
+- Connections now supports per-account local data reset with explicit local-only confirmation while preserving Gmail connection, credentials, and ingestion run history.
+- Review and Decisions now make mailbox scope explicit for real Gmail-derived rows, and Review exposes a bounded evidence surface from stored metadata only.
+- Decisions history now supports backend/frontend pagination and page-size controls while preserving current/revision visibility and keeping external actions disabled.
 - Frontend supports source review, source counts, decision controls, batch selection, history, loading state, and error state.
 - Frontend now gates the app on authentication and uses Connections as the Gmail connect/disconnect/manual-scan control center.
 - External email actions are explicitly not executed.
@@ -79,8 +88,8 @@ Validation note:
 | A24 | SKY Decision | Backend/Workflow Lifecycle | Add a way to clear or compact revision history past a selected point so decision history does not become its own clutter source. | Deferred |
 | A25 | Must Fix Before ALPHA Review | Frontend/Visual Design | Theme tokens are technically integrated, but components need visual tuning so the selected palette shapes the UI more intentionally and visible progress is legible to humans. | Partially Resolved |
 | A26 | Technical Debt | Backend/Data Model | Internal SQLAlchemy `Candidate` model/table name was retained to reduce ALPHA churn while API/UI/docs use source language. Rename to `Source`/`EmailSource` before the model hardens. | Open |
-| A27 | Deferred Scale Risk | Backend/Search | Source search uses simple ALPHA-scale filtering. Replace with a deliberate PostgreSQL search/index strategy before real mailbox volume. | Open |
-| A28 | Architecture Reconsideration | Backend/Database | SQLite-first may be a Native workforce default that creates unnecessary churn under AI-Injected compressed development. Reconsider starting or moving quickly to PostgreSQL. | Decided |
+| A27 | Deferred Scale Risk | Backend/Search | Source search uses simple ALPHA-scale filtering. Replace with a deliberate PostgreSQL search/index strategy before larger mailbox windows or real high-volume scanning. | Deferred / Not Blocking Bounded ALPHA |
+| A28 | Architecture Reconsideration | Backend/Database | SQLite-first may be a Native workforce default that creates unnecessary churn under AI-Injected compressed development. SANE moved to PostgreSQL as authoritative runtime/test persistence, and the process lesson has been captured. | Resolved / Process Captured |
 | A29 | RBA Recommendation | Process/UI Validation | Do not defer visible UI refinement solely because functionality works. Human reviewers often need visible change to perceive progress, trust the loop, and understand what changed. | Process Captured |
 | A30 | Architecture Foundation | Backend/Database | Migrate from SQLite-first ALPHA persistence to PostgreSQL-ready persistence with migration support before Gmail/auth/subscription work hardens around SQLite. | Resolved for ALPHA |
 | A31 | Architecture Foundation | Backend/Auth Readiness | Add basic user/account ownership foundation so sources, decisions, settings, and future Gmail connections have a real owner. | Resolved for ALPHA |
@@ -102,6 +111,15 @@ Validation note:
 | A47 | Dev UX / Auth Governance | Frontend/Backend Auth | Add a development-only Local ALPHA auth bypass so UI/workflow review can continue when Google OAuth is not configured. Must be disabled in production and must not imply Gmail connection or trigger ingestion. | Implemented for ALPHA |
 | A48 | UX Polish | Frontend/Auth/Navigation | Auth/runtime status and display mode controls are visually conflated in the top nav, and Local ALPHA status is over-informative/duplicated in the sidebar footer. Separate controls and simplify persistent identity/status display. | Implemented for ALPHA |
 | A49 | Live OAuth Hardening | Backend/Auth | Chrome live auth exposed a `jwt.exceptions.ImmatureSignatureError` when the local machine clock was out of sync. Time sync fixed it, but OAuth token validation should allow small clock skew and fail gracefully instead of showing a raw 500 debugger page. | Implemented for ALPHA |
+| A50 | Real Data UX | Frontend/Backend Contract | Decisions view needs pagination/page-size behavior. Real data review quickly fills decision history, and an unpaginated Decisions table can become clutter even after Review pagination is solved. | Implemented for ALPHA |
+| A51 | UX Labeling | Frontend/Connections | When a Gmail account is already connected, the Connections CTA should not still read `Connect Gmail`; use clearer add-language for additional accounts. | Implemented for ALPHA |
+| A52 | Future Action Safety | Product/Workflow | Future unsubscribe actions must distinguish marketing/promotional streams from important transactional/security/account messages from the same organization. | Deferred Critical Guardrail |
+| A53 | ALPHA/Test Data Control | Backend/Frontend Workflow | Add a clean reset/re-scan capability for a specific email account, with an option to clear source data alone or source data plus decision history, so SKY can repeat live validation from a known state. | Implemented for ALPHA with current model limitation |
+| A54 | Rescan Semantics | Frontend/Workflow Trust | Make rescan behavior explicit: scanning again refreshes/imports local review data only, does not execute queued decisions, does not clear decisions, and does not act on the real mailbox. | Implemented for ALPHA |
+| A55 | Performance/Request Hygiene | Frontend/API | Live Prompt 11 validation showed duplicate dev-mode account/auth/run fetches on render/navigation. Non-blocking, but worth tightening before the app grows. | Open |
+| A56 | Performance/Request Hygiene | Frontend/API | Review performs a lightweight decision-count fetch on page/refresh to keep history count current. Functional, but may become inefficient as decision history grows. | Open |
+| A57 | Test Infrastructure | E2E/CI | Playwright smoke tests exist locally, but CI wiring and Playwright report artifact publishing are not yet configured. | Deferred |
+| A58 | Test Fixture Hygiene | Frontend/Test | Vitest and Playwright now have separate seeded mock state. Deduplicate or share fixture definitions later to reduce drift risk. | Open |
 
 ---
 
@@ -616,13 +634,13 @@ Rename internal persistence and service language toward `Source` or `EmailSource
 
 Decision:
 
-Defer, but track before real mailbox volume.
+Defer, but track before larger mailbox windows or real high-volume scanning.
 
 Rationale:
 
-The current simple PostgreSQL-backed search/filtering behavior is acceptable for seeded/demo ALPHA data.
+The current simple PostgreSQL-backed search/filtering behavior is acceptable for bounded ALPHA validation and small live scans.
 
-It is not a final strategy for tens of thousands of real emails or source clusters.
+It is not a final strategy for tens of thousands of real emails or large source-cluster sets.
 
 Current risk:
 
@@ -633,7 +651,11 @@ Current risk:
 
 Future action:
 
-Design the large-scale search/indexing approach before real Gmail ingestion is used against the full mailbox volume.
+Design the large-scale search/indexing approach before Gmail ingestion is used against larger mailbox windows or full mailbox volume.
+
+Status:
+
+Deferred / Not Blocking Bounded ALPHA.
 
 ### A28 - SQLite vs PostgreSQL Under AI-Injected Compression
 
@@ -661,11 +683,24 @@ Possible bias:
 
 This may reflect training-model typicality bias: choosing SQLite because it is a common prototype default rather than because it is optimal for this AI-Injected development context.
 
-Future action:
+Implementation result:
 
-Create a focused PostgreSQL migration prompt before Gmail ingestion or real mailbox testing.
+SANE moved to PostgreSQL before live Gmail ingestion and real mailbox testing.
+
+Current state:
+
+- PostgreSQL is authoritative for runtime.
+- SQLite is deprecated as a runtime database.
+- PostgreSQL-backed tests are in place through `SANE_TEST_DATABASE_URL`.
+- Alembic migrations are the schema authority.
+
+Future process lesson:
 
 For future RBA app projects, evaluate database choice against expected AI-compressed ALPHA duration rather than using SQLite as the automatic default.
+
+Status:
+
+Resolved / Process Captured.
 
 ### A29 - Do Not Over-Defer UI Changes
 
@@ -1491,6 +1526,314 @@ frontend: npm run build -> passed
 Live retest note:
 
 - No live browser retest was performed for an intentionally skewed system clock after the repair.
+
+### A50 - Decisions View Pagination
+
+Observation:
+
+After live Gmail ingestion and several human decisions, the Decisions view began filling with real decision history.
+
+The Review view already has pagination/page-size behavior, but Decisions does not yet have equivalent scale handling.
+
+Decision:
+
+Add pagination/page-size behavior to the Decisions view, and make mailbox scope explicit for real Gmail-derived review/decision flows.
+
+Rationale:
+
+Decision history can grow quickly as a user processes real sources, revises prior choices, or performs batch decisions. Without pagination, the Decisions view can become cluttered and slow to scan.
+
+Expected behavior:
+
+- backend decision listing should support page and page size, or equivalent offset/limit.
+- response should include pagination metadata.
+- frontend Decisions view should expose page-size and page navigation.
+- current/revision semantics must remain visible.
+- filtering or search can be deferred unless implemented cheaply and cleanly.
+- no external email actions should be introduced.
+
+Implementation note:
+
+- backend source and decision listing now accept optional `email_account_id` mailbox scoping.
+- decision responses now include pagination metadata.
+- frontend Decisions now exposes mailbox scope, page-size, and page navigation.
+- frontend Review now exposes explicit mailbox scope and a compact expandable evidence row bounded to stored metadata only.
+- current/revision history semantics remain visible, and external actions remain not executed.
+
+Status:
+
+Implemented for ALPHA.
+
+### A51 - Connections CTA Labeling
+
+Observation:
+
+After a Gmail account is connected, the Connections page still shows a top-level button labeled:
+
+```text
+Connect Gmail
+```
+
+This is useful when no Gmail account exists, but confusing once an account is already connected because it can imply the current Gmail account is not connected.
+
+Decision:
+
+For ALPHA/Tier 1:
+
+- no Gmail connection: `Connect Gmail`
+- at least one Gmail connection: `Add Gmail Account`
+
+Future Tier 3 / multi-provider direction:
+
+- primary CTA becomes `Add Mailbox`
+- provider picker can offer Gmail, Outlook, IMAP, and other providers
+
+Implementation note:
+
+- Connections now uses `Connect Gmail` when no Gmail accounts exist.
+- Connections now uses `Add Gmail Account` once at least one Gmail account is already present.
+
+Status:
+
+Implemented for ALPHA.
+
+### A52 - Marketing-Only Unsubscribe Safety
+
+Observation:
+
+Future unsubscribe actions must not assume that every message from a source/organization is low value.
+
+Example:
+
+A user may receive both important banking/security messages and marketing messages from the same organization. Chime-style fraud alerts may be important, while promotional hype messages from the same broader organization may be low value.
+
+Decision:
+
+When SANE later moves from queued intent to actual unsubscribe/action execution, it must distinguish message stream/type before acting.
+
+Guardrail:
+
+Do not implement unsubscribe behavior as:
+
+```text
+all messages from this organization/source should be unsubscribed
+```
+
+Future action logic should consider:
+
+- promotional vs transactional messages
+- security/fraud/account alerts
+- sender address differences
+- list headers and unsubscribe metadata
+- Gmail category/label evidence
+- user confirmation at the stream/action level
+- preserve or separate important account/security streams
+
+ALPHA implementation note:
+
+- Source identity remains keyed by sender email, not organization/domain, so same-domain marketing and transactional/security senders are intentionally not collapsed together during Gmail ingestion.
+
+Status:
+
+Deferred critical guardrail for future action processing.
+
+### A53 - Account-Level Reset / Re-Scan Control
+
+Observation:
+
+Live SKY validation now needs a clean way to restart SANE data for a specific connected email account.
+
+Current scan behavior, based on the implementation:
+
+- `Scan Now` lists messages from Gmail using `maxResults` and `labelIds`.
+- It does not currently request or persist a Gmail `nextPageToken`.
+- Repeating a scan with the same limit should request the first matching page again, not the next page.
+- Source rows are upserted by `email_account_id + source_key`, so duplicate source rows should not be created for the same sender/source.
+- A new `IngestionRun` is created each time.
+- Existing source metadata can be refreshed/overwritten by the latest scan.
+- Existing decisions remain unless separately cleared.
+
+Need:
+
+Add a clean ALPHA/test control to reset data for:
+
+- one specific email account
+- possibly the whole user later, but email-account reset should come first
+
+Reset options:
+
+- clear source/review data for the selected email account
+- optionally also clear related decision history
+- optionally clear ingestion run history, or preserve it with a reset marker if that is more useful
+
+Rationale:
+
+As development continues, SKY needs repeatable live validation:
+
+```text
+reset selected mailbox data -> run bounded scan again -> review fresh source rows
+```
+
+This should be explicit and human-confirmed. It should not disconnect Gmail, revoke credentials, or execute external email actions.
+
+Implementation result:
+
+- Connections now exposes `Reset local data...` on each Gmail account card through a compact secondary control.
+- Reset is local to the selected Gmail account and requires explicit in-app confirmation.
+- Implemented reset mode: `sources_and_decisions`.
+- Preserved after reset: Gmail connection, stored credentials, granted scopes, and ingestion run history.
+- Implemented non-feature: `sources_only` is shown as unavailable with explicit copy because the current ALPHA data model cannot preserve decisions when sources are deleted.
+- Live validation confirmed local reset followed by a fresh bounded rescan and Review repopulation.
+
+Status:
+
+Implemented for ALPHA with current model limitation.
+
+### A54 - Rescan Semantics Visibility
+
+Observation:
+
+Users may click `Scan Now` after already making several decisions but before any future action-processing step exists.
+
+This can create ambiguity:
+
+```text
+Will scanning again apply my queued decisions?
+Will it clear my decisions?
+Will it duplicate rows?
+Will it move to the next batch?
+Will it touch my real mailbox?
+```
+
+Current behavior direction:
+
+- rescan creates a new `IngestionRun`
+- rescan asks Gmail for a bounded page of matching messages again
+- rescan upserts source rows by email account and source key
+- rescan does not execute external email actions
+- rescan does not clear decisions
+- rescan may refresh existing source metadata
+- rescan may add new source rows if new matching messages appear
+- previously scanned sources likely remain unless reset/cleanup behavior is added
+
+Decision:
+
+Make rescan semantics explicit in the UI and/or supporting copy before users begin serious real-data testing.
+
+Preferred user-facing principle:
+
+```text
+Scan Now refreshes SANE's local review data only. It does not apply queued decisions or modify Gmail.
+```
+
+Future behavior should preserve:
+
+- scan/import/refresh is separate from action execution
+- queued decisions remain queued until a later explicit action step
+- resetting local data is a separate explicit operation
+- disconnecting Gmail is separate from deleting local data
+
+Implementation note:
+
+- Connections now states that Scan Now refreshes local SANE review data only and does not modify Gmail.
+- Each scan records both `source_count_created` and `source_count_seen`, so repeat scans can honestly report refresh activity even when no new source rows are added.
+- Gmail rescans continue to upsert by `email_account_id + source_key`, preserve existing decision history, and avoid executing external actions.
+
+Status:
+
+Implemented for ALPHA.
+
+### A55 - Duplicate Dev-Mode Fetch Churn
+
+Observation:
+
+Prompt 11 live browser validation showed duplicate request patterns on initial render/navigation:
+
+```text
+GET /api/auth/me
+GET /api/gmail/accounts
+GET /api/gmail/runs/{id}
+```
+
+No user-facing breakage was observed.
+
+Decision:
+
+Track as a non-blocking performance/request-hygiene issue.
+
+Rationale:
+
+The duplicate fetches are tolerable during ALPHA, but request churn can make debugging noisier and may become more noticeable as the app grows.
+
+Status:
+
+Open.
+
+### A56 - Review Decision Count Fetch Churn
+
+Observation:
+
+Prompt 11 live browser validation showed Review making a lightweight call like:
+
+```text
+GET /api/decisions?page=1&page_size=1&email_account_id=...
+```
+
+This keeps the decision-history count current.
+
+Decision:
+
+Track as a non-blocking request-hygiene issue.
+
+Rationale:
+
+The current approach is functional, but decision history can grow. A dedicated summary/count endpoint or inclusion of relevant counts in an existing response may eventually be cleaner.
+
+Status:
+
+Open.
+
+### A57 - Playwright CI / Report Artifact Wiring
+
+Observation:
+
+Prompt 11b added a repeatable Playwright smoke-test layer:
+
+```text
+npm run test:e2e -> 3 passed
+```
+
+The suite is local and deterministic, but CI wiring and Playwright report artifact publishing are not yet configured.
+
+Decision:
+
+Defer CI/report wiring until the project is ready for GitHub Actions or equivalent CI/CD work.
+
+Rationale:
+
+The local E2E layer already provides teaching/demo value. CI integration is useful, but it should be added when repository automation is being actively shaped.
+
+Status:
+
+Deferred.
+
+### A58 - Vitest / Playwright Fixture Drift
+
+Observation:
+
+Prompt 11b added deterministic Playwright API-routing fixtures in addition to existing Vitest mock state.
+
+Risk:
+
+If the seeded data diverges between Vitest and Playwright fixtures, tests may describe slightly different product realities.
+
+Decision:
+
+Track fixture deduplication/shared fixture extraction as future test hygiene.
+
+Status:
+
+Open.
 
 ---
 

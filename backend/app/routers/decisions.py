@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
@@ -24,10 +24,20 @@ router = APIRouter(prefix="/decisions", tags=["decisions"])
 
 @router.get("", response_model=DecisionListResponse, summary="List recorded decisions")
 def read_decisions(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=5, ge=1, le=50),
+    email_account_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> DecisionListResponse:
-    return DecisionListResponse(items=list_decisions(db, user=user))
+    result = list_decisions(
+        db,
+        user=user,
+        page=page,
+        page_size=page_size,
+        email_account_id=email_account_id,
+    )
+    return DecisionListResponse(items=result.items, pagination=result.pagination)
 
 
 @router.post(

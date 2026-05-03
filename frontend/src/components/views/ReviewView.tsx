@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 import {
   createBatchDecision,
@@ -8,7 +8,7 @@ import {
   listIngestionRuns,
   listSources,
 } from "../../services/api";
-import type { IngestionRunSummary } from "../../types/auth";
+import type { EmailAccountInfo, IngestionRunSummary } from "../../types/auth";
 import {
   decisionActionLabels,
   processingStateLabels,
@@ -39,6 +39,41 @@ const PAGE_SIZE_OPTIONS = [5, 10, 20];
 const pluralize = (count: number, singular: string, plural = `${singular}s`) =>
   count === 1 ? singular : plural;
 
+const formatTimestamp = (value: string | null) => {
+  if (!value) return "No timestamp recorded";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "No timestamp recorded";
+
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+};
+
+const mailboxStatusLabel = (status: EmailAccountInfo["connection_status"]) => {
+  if (status === "connected") return "Connected";
+  if (status === "disconnected") return "Disconnected";
+  if (status === "expired") return "Expired";
+  if (status === "revoked") return "Revoked";
+  if (status === "error") return "Error";
+  return "Local only";
+};
+
+const mailboxStatusChipClass = (
+  status: EmailAccountInfo["connection_status"],
+) => {
+  if (status === "connected") return "chip chip--connected";
+  if (status === "disconnected") return "chip chip--disconnected";
+  if (status === "expired") return "chip chip--warning";
+  if (status === "revoked" || status === "error") return "chip chip--danger";
+  return "chip chip--neutral";
+};
+
+const getSenderDomains = (senderEmails: string[]) => [
+  ...new Set(senderEmails.map((email) => email.split("@")[1] ?? email)),
+];
+
 interface ReviewViewProps {
   isLocalAlpha: boolean;
   onOpenConnections: () => void;
@@ -49,15 +84,17 @@ export function ReviewView({
   onOpenConnections,
 }: ReviewViewProps) {
   const [sources, setSources] = useState<SourceRow[]>([]);
-  const [decisions, setDecisions] = useState<DecisionRecord[]>([]);
+  const [accounts, setAccounts] = useState<EmailAccountInfo[]>([]);
   const [runsByAccount, setRunsByAccount] = useState<
     Record<number, IngestionRunSummary[]>
   >({});
   const [connectedAccountCount, setConnectedAccountCount] = useState(0);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+  const [decisionHistoryCount, setDecisionHistoryCount] = useState(0);
   const [pagination, setPagination] =
     useState<PaginationMeta>(defaultPagination);
   const [isLoading, setIsLoading] = useState(true);
+  const [accountsLoaded, setAccountsLoaded] = useState(isLocalAlpha);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [submittingKey, setSubmittingKey] = useState<string | null>(null);
@@ -68,28 +105,38 @@ export function ReviewView({
   const [pageSize, setPageSize] = useState(5);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(
+    null,
+  );
+  const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    const loadData = async () => {
-      setIsLoading(true);
+    if (isLocalAlpha) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (isLocalAlpha) {
+      setAccounts([]);
+      setRunsByAccount({});
+      setConnectedAccountCount(0);
+      setSelectedAccountId(null);
+      setAccountsLoaded(true);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const loadAccountContext = async () => {
       setErrorMessage(null);
       try {
-        const [sourceResponse, decisionResponse, accounts] = await Promise.all([
-          listSources({
-            page,
-            pageSize,
-            search,
-            category: categoryFilter || undefined,
-            signal: signalFilter || undefined,
-          }),
-          listDecisions(),
-          listEmailAccounts(),
-        ]);
+        const nextAccounts = await listEmailAccounts();
 
         const runEntries = await Promise.all(
-          accounts.map(async (account) => {
+          nextAccounts.map(async (account) => {
             const runs = await listIngestionRuns(account.id);
             return [account.id, runs] as const;
           }),
@@ -97,20 +144,91 @@ export function ReviewView({
 
         if (cancelled) return;
 
-        setSources(sourceResponse.items);
-        setAvailableCategories(sourceResponse.available_categories);
-        setPagination(sourceResponse.pagination);
-        setDecisions(decisionResponse.items);
+        setAccounts(nextAccounts);
         setRunsByAccount(Object.fromEntries(runEntries));
         setConnectedAccountCount(
-          accounts.filter(
+          nextAccounts.filter(
             (account) => account.connection_status === "connected",
           ).length,
         );
+        setSelectedAccountId((current) => {
+          if (
+            current !== null &&
+            nextAccounts.some((account) => account.id === current)
+          ) {
+            return current;
+          }
+          return nextAccounts[0]?.id ?? null;
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setErrorMessage(toErrorMessage(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setAccountsLoaded(true);
+        }
+      }
+    };
+
+    void loadAccountContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLocalAlpha]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!accountsLoaded) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (!isLocalAlpha && accounts.length > 0 && selectedAccountId === null) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const loadData = async () => {
+      setIsLoading(true);
+      setErrorMessage(null);
+      try {
+        const [sourceResponse, decisionResponse] = await Promise.all([
+          listSources({
+            page,
+            pageSize,
+            search,
+            category: categoryFilter || undefined,
+            signal: signalFilter || undefined,
+            emailAccountId: selectedAccountId ?? undefined,
+          }),
+          listDecisions({
+            page: 1,
+            pageSize: 1,
+            emailAccountId: selectedAccountId ?? undefined,
+          }),
+        ]);
+
+        if (cancelled) return;
+
+        setSources(sourceResponse.items);
+        setAvailableCategories(sourceResponse.available_categories);
+        setPagination(sourceResponse.pagination);
+        setDecisionHistoryCount(decisionResponse.pagination.total_items);
         setSelectedIds((current) =>
           current.filter((id) =>
             sourceResponse.items.some((source) => source.id === id),
           ),
+        );
+        setExpandedSourceId((current) =>
+          current !== null &&
+          sourceResponse.items.some((source) => source.id === current)
+            ? current
+            : null,
         );
 
         if (sourceResponse.pagination.page !== page) {
@@ -132,10 +250,21 @@ export function ReviewView({
     return () => {
       cancelled = true;
     };
-  }, [page, pageSize, search, categoryFilter, signalFilter, refreshNonce]);
+  }, [
+    accountsLoaded,
+    categoryFilter,
+    isLocalAlpha,
+    page,
+    pageSize,
+    refreshNonce,
+    search,
+    selectedAccountId,
+    signalFilter,
+  ]);
 
   const requestRefresh = (affectedCount: number) => {
     setSelectedIds([]);
+    setExpandedSourceId(null);
     if (sources.length <= affectedCount && pagination.page > 1) {
       setPage(pagination.page - 1);
       return;
@@ -219,18 +348,20 @@ export function ReviewView({
   const allOnPageSelected =
     sources.length > 0 &&
     sources.every((source) => selectedIds.includes(source.id));
-  const decidedCount = decisions.filter(
-    (decision) => decision.is_current,
-  ).length;
-  const revisionCount = decisions.filter(
-    (decision) => decision.is_revision,
-  ).length;
+  const selectedAccount =
+    selectedAccountId === null
+      ? null
+      : (accounts.find((account) => account.id === selectedAccountId) ?? null);
+  const latestSelectedRun =
+    selectedAccount === null
+      ? null
+      : ((runsByAccount[selectedAccount.id] ?? [])[0] ?? null);
   const allRuns = Object.values(runsByAccount).flat();
   const hasCompletedRunWithSources = allRuns.some(
-    (run) => run.status === "completed" && run.source_count_created > 0,
+    (run) => run.status === "completed" && run.source_count_seen > 0,
   );
   const hasCompletedRunWithoutSources = allRuns.some(
-    (run) => run.status === "completed" && run.source_count_created === 0,
+    (run) => run.status === "completed" && run.source_count_seen === 0,
   );
   const filtersActive = Boolean(
     search.trim() || categoryFilter || signalFilter,
@@ -242,7 +373,7 @@ export function ReviewView({
     !isLoading &&
     sources.length === 0 &&
     pagination.total_items === 0 &&
-    decisions.length === 0
+    decisionHistoryCount === 0
       ? connectedAccountCount === 0
         ? {
             title: "Connect Gmail to build your review queue",
@@ -276,10 +407,12 @@ export function ReviewView({
           <span className="summary-note">{sources.length} on this page</span>
         </div>
         <div className="summary-kpi summary-kpi--decision">
-          <dt>Sources with decision</dt>
-          <dd>{decidedCount}</dd>
+          <dt>Decision history</dt>
+          <dd>{decisionHistoryCount}</dd>
           <span className="summary-note">
-            {revisionCount} revisions recorded
+            {isLocalAlpha
+              ? "Append-only local ALPHA history"
+              : "Append-only local events for this mailbox"}
           </span>
         </div>
         <div className="summary-kpi summary-kpi--safety">
@@ -301,6 +434,69 @@ export function ReviewView({
         <p className="status-msg" role="status">
           {statusMessage}
         </p>
+      )}
+
+      {!isLocalAlpha && accounts.length > 0 && (
+        <section
+          className="mailbox-scope-card"
+          aria-label="Review mailbox scope"
+        >
+          <div className="mailbox-scope-card__header">
+            <div className="mailbox-scope-card__copy">
+              <span className="chip chip--neutral">Mailbox scope</span>
+              <h2>{selectedAccount?.account_email ?? "Select a mailbox"}</h2>
+              <p>
+                Review stays scoped to one Gmail account at a time. SANE shows
+                stored metadata only and never executes Gmail actions.
+              </p>
+            </div>
+            {selectedAccount ? (
+              <span
+                className={mailboxStatusChipClass(
+                  selectedAccount.connection_status,
+                )}
+              >
+                {mailboxStatusLabel(selectedAccount.connection_status)}
+              </span>
+            ) : null}
+          </div>
+          <div className="mailbox-scope-card__meta">
+            <label className="page-size-control mailbox-scope-card__control">
+              Mailbox
+              <select
+                className="filter-select page-size-select"
+                aria-label="Review mailbox scope"
+                value={selectedAccountId ?? ""}
+                onChange={(event) => {
+                  setSelectedAccountId(Number(event.target.value));
+                  setPage(1);
+                  setSelectedIds([]);
+                  setExpandedSourceId(null);
+                }}
+              >
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.account_email}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="pagination-summary">
+              {latestSelectedRun
+                ? `Latest scan: ${formatTimestamp(
+                    latestSelectedRun.completed_at ??
+                      latestSelectedRun.started_at,
+                  )}`
+                : "Latest scan: none recorded"}
+            </span>
+            {latestSelectedRun ? (
+              <span className="pagination-summary">
+                {latestSelectedRun.message_count_scanned} messages checked,{" "}
+                {latestSelectedRun.source_count_seen} sources seen
+              </span>
+            ) : null}
+          </div>
+        </section>
       )}
 
       {guidedEmptyState ? (
@@ -471,96 +667,192 @@ export function ReviewView({
                         </td>
                       </tr>
                     ) : (
-                      sources.map((source) => (
-                        <tr
-                          key={source.id}
-                          className={`source-row${selectedIds.includes(source.id) ? " source-row--selected" : ""}`}
-                        >
-                          <td className="select-cell">
-                            <input
-                              className="row-checkbox"
-                              type="checkbox"
-                              checked={selectedIds.includes(source.id)}
-                              aria-label={`Select ${source.source_name}`}
-                              onChange={(e) => {
-                                toggleSelection(source.id, e.target.checked);
-                              }}
-                            />
-                          </td>
-                          <td className="col-source">
-                            <span className="source-name">
-                              {source.source_name}
-                            </span>
-                            <span className="source-subject">
-                              {source.representative_subject}
-                            </span>
-                            <span className="source-reason">
-                              {source.candidate_reason}
-                            </span>
-                          </td>
-                          <td>
-                            <div className="sender-list">
-                              {source.sender_emails.map((senderEmail) => (
-                                <span key={senderEmail}>{senderEmail}</span>
-                              ))}
-                            </div>
-                          </td>
-                          <td className="col-count">
-                            <div className="count-metric">
-                              <strong>{source.email_count}</strong>
-                              <span>emails</span>
-                            </div>
-                          </td>
-                          <td>{source.mailbox_category}</td>
-                          <td>
-                            <span
-                              className={`chip chip--signal chip--${source.classifier_signal.replace(/_/g, "-")}`}
+                      sources.map((source) => {
+                        const isExpanded = expandedSourceId === source.id;
+                        const senderDomains = getSenderDomains(
+                          source.sender_emails,
+                        );
+
+                        return (
+                          <Fragment key={source.id}>
+                            <tr
+                              className={`source-row${selectedIds.includes(source.id) ? " source-row--selected" : ""}`}
                             >
-                              {signalLabels[source.classifier_signal]}
-                            </span>
-                          </td>
-                          <td>
-                            <span
-                              className={`chip chip--decision chip--${source.suggested_decision.replace(/_/g, "-")}`}
-                            >
-                              {decisionActionLabels[source.suggested_decision]}
-                            </span>
-                          </td>
-                          <td>
-                            <span
-                              className={`chip chip--state chip--${source.processing_state.replace(/_/g, "-")}`}
-                            >
-                              {processingStateLabels[source.processing_state]}
-                            </span>
-                          </td>
-                          <td className="col-actions">
-                            <div className="row-actions">
-                              {(
-                                Object.entries(decisionActionLabels) as [
-                                  DecisionValue,
-                                  string,
-                                ][]
-                              ).map(([decision, label]) => (
+                              <td className="select-cell">
+                                <input
+                                  className="row-checkbox"
+                                  type="checkbox"
+                                  checked={selectedIds.includes(source.id)}
+                                  aria-label={`Select ${source.source_name}`}
+                                  onChange={(e) => {
+                                    toggleSelection(
+                                      source.id,
+                                      e.target.checked,
+                                    );
+                                  }}
+                                />
+                              </td>
+                              <td className="col-source">
+                                <span className="source-name">
+                                  {source.source_name}
+                                </span>
+                                <span className="source-subject">
+                                  {source.representative_subject}
+                                </span>
+                                <span className="source-reason">
+                                  {source.candidate_reason}
+                                </span>
                                 <button
-                                  className={`btn-action btn-action--${decision.replace(/_/g, "-")}`}
-                                  key={decision}
+                                  className="evidence-toggle"
                                   type="button"
-                                  disabled={
-                                    submittingKey === `source-${source.id}`
-                                  }
+                                  aria-expanded={isExpanded}
+                                  aria-controls={`review-evidence-${source.id}`}
                                   onClick={() => {
-                                    void handleDecision(source.id, decision);
+                                    setExpandedSourceId((current) =>
+                                      current === source.id ? null : source.id,
+                                    );
                                   }}
                                 >
-                                  {submittingKey === `source-${source.id}`
-                                    ? "…"
-                                    : label}
+                                  {isExpanded
+                                    ? "Hide evidence"
+                                    : "Show evidence"}
                                 </button>
-                              ))}
-                            </div>
-                          </td>
-                        </tr>
-                      ))
+                              </td>
+                              <td>
+                                <div className="sender-list">
+                                  {source.sender_emails.map((senderEmail) => (
+                                    <span key={senderEmail}>{senderEmail}</span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="col-count">
+                                <div className="count-metric">
+                                  <strong>{source.email_count}</strong>
+                                  <span>emails</span>
+                                </div>
+                              </td>
+                              <td>{source.mailbox_category}</td>
+                              <td>
+                                <span
+                                  className={`chip chip--signal chip--${source.classifier_signal.replace(/_/g, "-")}`}
+                                >
+                                  {signalLabels[source.classifier_signal]}
+                                </span>
+                              </td>
+                              <td>
+                                <span
+                                  className={`chip chip--decision chip--${source.suggested_decision.replace(/_/g, "-")}`}
+                                >
+                                  {
+                                    decisionActionLabels[
+                                      source.suggested_decision
+                                    ]
+                                  }
+                                </span>
+                              </td>
+                              <td>
+                                <span
+                                  className={`chip chip--state chip--${source.processing_state.replace(/_/g, "-")}`}
+                                >
+                                  {
+                                    processingStateLabels[
+                                      source.processing_state
+                                    ]
+                                  }
+                                </span>
+                              </td>
+                              <td className="col-actions">
+                                <div className="row-actions">
+                                  {(
+                                    Object.entries(decisionActionLabels) as [
+                                      DecisionValue,
+                                      string,
+                                    ][]
+                                  ).map(([decision, label]) => (
+                                    <button
+                                      className={`btn-action btn-action--${decision.replace(/_/g, "-")}`}
+                                      key={decision}
+                                      type="button"
+                                      disabled={
+                                        submittingKey === `source-${source.id}`
+                                      }
+                                      onClick={() => {
+                                        void handleDecision(
+                                          source.id,
+                                          decision,
+                                        );
+                                      }}
+                                    >
+                                      {submittingKey === `source-${source.id}`
+                                        ? "…"
+                                        : label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                            {isExpanded ? (
+                              <tr className="source-evidence-row">
+                                <td
+                                  colSpan={9}
+                                  id={`review-evidence-${source.id}`}
+                                >
+                                  <div className="source-evidence">
+                                    <div className="source-evidence__item">
+                                      <strong>Mailbox scope</strong>
+                                      <span>
+                                        {selectedAccount?.account_email ??
+                                          "Local ALPHA review queue"}
+                                      </span>
+                                    </div>
+                                    <div className="source-evidence__item">
+                                      <strong>Sender domains</strong>
+                                      <span>{senderDomains.join(", ")}</span>
+                                    </div>
+                                    <div className="source-evidence__item">
+                                      <strong>Representative subject</strong>
+                                      <span>
+                                        {source.representative_subject}
+                                      </span>
+                                    </div>
+                                    <div className="source-evidence__item">
+                                      <strong>Suggested local decision</strong>
+                                      <span>
+                                        {
+                                          decisionActionLabels[
+                                            source.suggested_decision
+                                          ]
+                                        }
+                                      </span>
+                                    </div>
+                                    <div className="source-evidence__item">
+                                      <strong>Current local decision</strong>
+                                      <span>
+                                        {source.current_decision
+                                          ? decisionActionLabels[
+                                              source.current_decision
+                                            ]
+                                          : "No local decision recorded"}
+                                      </span>
+                                    </div>
+                                    <div className="source-evidence__item">
+                                      <strong>Latest scan context</strong>
+                                      <span>
+                                        {latestSelectedRun
+                                          ? `${latestSelectedRun.message_count_scanned} messages checked on ${formatTimestamp(
+                                              latestSelectedRun.completed_at ??
+                                                latestSelectedRun.started_at,
+                                            )}`
+                                          : "No scan recorded for this mailbox yet"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            ) : null}
+                          </Fragment>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>

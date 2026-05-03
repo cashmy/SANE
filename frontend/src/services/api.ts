@@ -7,7 +7,12 @@ import type {
   CandidateSignal,
   SourceListResponse,
 } from "../types/workflow";
-import type { EmailAccountInfo, IngestionRunSummary } from "../types/auth";
+import type {
+  EmailAccountInfo,
+  IngestionRunSummary,
+  ResetLocalDataMode,
+  ResetLocalDataSummary,
+} from "../types/auth";
 
 export const apiConfig = {
   baseUrl: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000",
@@ -81,6 +86,13 @@ interface ListSourcesParams {
   category?: string;
   signal?: CandidateSignal;
   includeProcessed?: boolean;
+  emailAccountId?: number;
+}
+
+interface ListDecisionsParams {
+  page?: number;
+  pageSize?: number;
+  emailAccountId?: number;
 }
 
 const buildQueryString = (params: ListSourcesParams) => {
@@ -94,6 +106,9 @@ const buildQueryString = (params: ListSourcesParams) => {
   if (params.category) query.set("category", params.category);
   if (params.signal) query.set("signal", params.signal);
   if (params.includeProcessed) query.set("include_processed", "true");
+  if (params.emailAccountId !== undefined) {
+    query.set("email_account_id", String(params.emailAccountId));
+  }
 
   const search = query.toString();
   return search ? `?${search}` : "";
@@ -107,10 +122,13 @@ export const listSources = (params: ListSourcesParams = {}) =>
     },
   );
 
-export const listDecisions = () =>
-  request<DecisionListResponse>(apiConfig.decisionsPath, {
-    method: "GET",
-  });
+export const listDecisions = (params: ListDecisionsParams = {}) =>
+  request<DecisionListResponse>(
+    `${apiConfig.decisionsPath}${buildQueryString(params)}`,
+    {
+      method: "GET",
+    },
+  );
 
 export const createDecision = (payload: DecisionCreateRequest) =>
   request<DecisionRecord>(apiConfig.decisionsPath, {
@@ -152,3 +170,18 @@ export const disconnectGmailAccount = (emailAccountId: number) =>
     method: "POST",
     body: JSON.stringify({ email_account_id: emailAccountId }),
   });
+
+export const resetGmailAccountLocalData = (
+  emailAccountId: number,
+  payload: {
+    mode: ResetLocalDataMode;
+    confirmed: boolean;
+  },
+) =>
+  request<ResetLocalDataSummary>(
+    `${apiConfig.gmailAccountsPath}/${emailAccountId}/reset-local-data`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );

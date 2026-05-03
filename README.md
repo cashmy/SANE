@@ -104,7 +104,51 @@ cd frontend
 npm run test:run
 ```
 
+Install the Chromium browser that the Playwright smoke tests use:
+
+```bash
+cd frontend
+npm run test:e2e:install
+```
+
+Run the browser smoke tests:
+
+```bash
+cd frontend
+npm run test:e2e
+```
+
 The frontend starts on `http://localhost:5173` by default.
+
+## Browser E2E Smoke Tests
+
+Prompt 11b adds a small Playwright smoke layer on top of the existing Vitest and pytest coverage.
+
+Current E2E design:
+
+- real Chromium browser
+- real Vite frontend server
+- deterministic Playwright API routing/mocking
+- no real backend-backed auth mode switching
+- no real Google OAuth, Gmail OAuth, Gmail scan, Gmail reset, or Gmail mutation
+
+The Playwright config starts its own frontend server and sets `VITE_API_BASE_URL` only for that spawned process, so normal local `.env` files do not need to be edited for E2E.
+
+Current smoke coverage:
+
+- local-dev auth shell entry and app navigation
+- Connections safety copy plus reset dialog open/cancel path
+- Review evidence toggle and decision flow with Decisions pagination/history checks
+
+These tests intentionally do not cover:
+
+- real Google sign-in
+- real Gmail authorization
+- real Gmail scan execution
+- live mailbox reset
+- any real mailbox mutation path
+
+Those flows remain manual local validation steps because they are credential-dependent and not appropriate for deterministic CI or student repeatability.
 
 ## Backend
 

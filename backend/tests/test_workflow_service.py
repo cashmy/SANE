@@ -52,7 +52,9 @@ def test_source_listing_returns_source_rows_with_email_counts(db_session) -> Non
     )
     assert any(len(source.sender_emails) > 1 for source in result.items)
     assert any(source.email_count >= 40 for source in result.items)
-    assert list_decisions(db_session, user=user) == []
+    decision_result = list_decisions(db_session, user=user)
+    assert decision_result.items == []
+    assert decision_result.pagination.total_items == 0
 
 
 def test_record_decision_requires_explicit_human_confirmation(db_session) -> None:
@@ -197,10 +199,11 @@ def test_revision_appends_a_new_history_event(db_session) -> None:
     assert second.decision.revised_from_decision_id == first.decision.id
     assert persisted_candidate is not None
     assert persisted_candidate.processing_state == CandidateState.marked_low_value
-    assert len(history) == 2
-    assert history[0].is_current is True
-    assert history[0].is_revision is True
-    assert history[1].is_current is False
+    assert len(history.items) == 2
+    assert history.pagination.total_items == 2
+    assert history.items[0].is_current is True
+    assert history.items[0].is_revision is True
+    assert history.items[1].is_current is False
 
 
 def test_batch_decision_requires_confirmation_and_stays_local(
@@ -430,4 +433,5 @@ def test_ingestion_run_can_be_created_without_executing_gmail(db_session) -> Non
     assert persisted.email_account_id == account.id
     assert persisted.user_id == account.user_id
     assert persisted.message_count_scanned == 0
+    assert persisted.source_count_seen == 0
     assert persisted.source_count_created == 0

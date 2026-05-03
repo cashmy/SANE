@@ -19,6 +19,7 @@ def read_sources(
     search: str | None = Query(default=None),
     category: str | None = Query(default=None),
     signal: CandidateSignal | None = Query(default=None),
+    email_account_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> SourceListResponse:
@@ -31,6 +32,7 @@ def read_sources(
         search=search,
         category=category,
         signal=signal,
+        email_account_id=email_account_id,
     )
     return SourceListResponse(
         items=result.items,
