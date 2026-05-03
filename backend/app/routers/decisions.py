@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
+from app.core.security import get_current_user
 from app.db.session import get_db
+from app.models.user import User
 from app.schemas.workflow import (
     BatchDecisionCreate,
     BatchDecisionResponse,
@@ -21,8 +23,11 @@ router = APIRouter(prefix="/decisions", tags=["decisions"])
 
 
 @router.get("", response_model=DecisionListResponse, summary="List recorded decisions")
-def read_decisions(db: Session = Depends(get_db)) -> DecisionListResponse:
-    return DecisionListResponse(items=list_decisions(db))
+def read_decisions(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DecisionListResponse:
+    return DecisionListResponse(items=list_decisions(db, user=user))
 
 
 @router.post(
@@ -33,9 +38,10 @@ def read_decisions(db: Session = Depends(get_db)) -> DecisionListResponse:
 def create_batch_decision(
     payload: BatchDecisionCreate,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> BatchDecisionResponse:
     try:
-        result = record_batch_decision(db, payload)
+        result = record_batch_decision(db, user=user, payload=payload)
         return BatchDecisionResponse(
             applied=result.applied,
             unchanged=result.unchanged,
@@ -60,9 +66,10 @@ def create_decision(
     payload: DecisionCreate,
     response: Response,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> DecisionRead:
     try:
-        result = record_decision(db, payload)
+        result = record_decision(db, user=user, payload=payload)
         if not result.applied:
             response.status_code = status.HTTP_200_OK
         return result.decision

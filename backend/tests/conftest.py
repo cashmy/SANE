@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 import pytest
@@ -8,11 +9,24 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
+os.environ.setdefault(
+    "SANE_JWT_SECRET",
+    "test-jwt-secret-with-32-byte-minimum-length",
+)
+os.environ.setdefault(
+    "SANE_CREDENTIAL_ENCRYPTION_KEY",
+    "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+)
+
 import app.models
 from app.core.config import BACKEND_DIR, get_settings
+from app.core.security import SESSION_COOKIE_NAME, create_session_token
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+from app.models.user import User
+from app.models.user_email import UserEmail
+from app.services.ownership import get_or_create_local_alpha_user
 
 
 def _require_safe_test_database_url(
@@ -146,6 +160,53 @@ def client() -> TestClient:
         yield test_client
     app.dependency_overrides.clear()
     app.router.lifespan_context = original_lifespan
+
+
+@pytest.fixture
+def auth_client(client: TestClient, db_session: Session) -> TestClient:
+    user = get_or_create_local_alpha_user(db_session)
+    db_session.commit()
+    client.cookies.set(
+        SESSION_COOKIE_NAME,
+        create_session_token(user.id),
+        path="/",
+    )
+    return client
+
+
+@pytest.fixture
+def authenticated_client_factory(client: TestClient, db_session: Session):
+    def _make(
+        *,
+        email: str = "signed-in-user@example.com",
+        display_name: str = "Signed In User",
+        is_local_alpha: bool = False,
+    ) -> tuple[TestClient, User]:
+        user = User(
+            email=email,
+            display_name=display_name,
+            is_local_alpha=is_local_alpha,
+        )
+        db_session.add(user)
+        db_session.flush()
+        db_session.add(
+            UserEmail(
+                user_id=user.id,
+                email=email,
+                role="primary",
+                is_primary=True,
+                is_verified=True,
+            )
+        )
+        db_session.commit()
+        client.cookies.set(
+            SESSION_COOKIE_NAME,
+            create_session_token(user.id),
+            path="/",
+        )
+        return client, user
+
+    return _make
 
 
 @pytest.fixture

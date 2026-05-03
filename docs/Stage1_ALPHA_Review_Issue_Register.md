@@ -12,13 +12,13 @@ The fuller RBA/process version lives in the SANE-RBA artifact set.
 
 ## Current Validation
 
-Latest BASE/CORE validation after Prompt 07e:
+Latest BASE validation after Prompt 08:
 
 ```text
-backend: python -m pytest -> 21 passed
-frontend: npm run test:run -> 10 passed
+backend: python -m pytest -> 46 passed
+frontend: npm run test:run -> 13 passed
 frontend: npm run build -> passed
-alembic head/current -> 0003_email_account_foundation
+alembic head/current -> 0006_gmail_credential_storage
 ```
 
 Validation note:
@@ -34,7 +34,9 @@ Validation note:
 - Backend supports paginated source listing, single decisions, batch decisions, and decision history.
 - Backend now has a future-ready account/auth/mailbox foundation: UserEmail, AuthIdentity, EmailAccount, and IngestionRun.
 - Source identity is now scoped to EmailAccount through `unique(email_account_id, source_key)`.
+- Google app authentication, separate Gmail authorization, encrypted Gmail credential storage, and manual bounded Gmail ingestion are implemented with mocked automated tests.
 - Frontend supports source review, source counts, decision controls, batch selection, history, loading state, and error state.
+- Frontend now gates the app on authentication and uses Connections as the Gmail connect/disconnect/manual-scan control center.
 - External email actions are explicitly not executed.
 - Tests protect governance behaviors, not only rendering.
 - Implementation remains inside Stage 1 boundaries.
@@ -76,8 +78,8 @@ Validation note:
 | A29 | RBA Recommendation | Process/UI Validation | Do not defer visible UI refinement solely because functionality works. Human reviewers often need visible change to perceive progress, trust the loop, and understand what changed. | Process Captured |
 | A30 | Architecture Foundation | Backend/Database | Migrate from SQLite-first ALPHA persistence to PostgreSQL-ready persistence with migration support before Gmail/auth/subscription work hardens around SQLite. | Resolved for ALPHA |
 | A31 | Architecture Foundation | Backend/Auth Readiness | Add basic user/account ownership foundation so sources, decisions, settings, and future Gmail connections have a real owner. | Resolved for ALPHA |
-| A32 | Gmail Governance | Integration/Workflow | Gmail scanning/importing/analyzing must never run merely because the app opens; ingestion must be user-requested or chrono-controlled. | Decided |
-| A33 | Gmail Integration | Integration/API | Implement Gmail OAuth/API and bounded ingestion only after the database/user foundation is in place; first real-data contact should be limited by count and/or recency. | Deferred |
+| A32 | Gmail Governance | Integration/Workflow | Gmail scanning/importing/analyzing must never run merely because the app opens; ingestion must be user-requested or chrono-controlled. Prompt 08 implements manual-only bounded scan behavior. | Implemented for ALPHA |
+| A33 | Gmail Integration | Integration/API | Implement Gmail OAuth/API and bounded ingestion only after the database/user foundation is in place; first real-data contact should be limited by count and/or recency. Prompt 08 implemented mocked Google sign-in, Gmail connect, and manual bounded ingestion. | Implemented, Needs Live Validation |
 | A34 | Visual Identity | Frontend/Design System | Current palette may be too close to the original UI to produce the expected perceived visual change; consider a stronger SANE visual identity pass after architecture foundation. | Open |
 | A35 | Must Fix Before Gmail | Backend/Data Model | `source_key` identity needed a higher-order ownership partition before Gmail/OAuth ingestion. The stepping-stone user-scoped fix was superseded by email-account-scoped uniqueness. | Resolved |
 | A36 | Validation Gap | Backend/Database | PostgreSQL is configured and migration-ready, but live PostgreSQL migration/runtime validation has not yet been exercised. | Resolved |
@@ -87,6 +89,11 @@ Validation note:
 | A40 | Account Model | Backend/Data Model | Add future-ready account/auth/mailbox hierarchy before Gmail: UserEmail, AuthIdentity, EmailAccount, IngestionRun, and source identity scoped to EmailAccount. | Resolved for Foundation |
 | A41 | Privacy/Data Minimization | Backend/Gmail Readiness | Gmail ingestion should store minimal metadata/snippets for source classification, not full email bodies by default. | Foundation Encoded |
 | A42 | Mailbox Lifecycle | Backend/Workflow | Distinguish disconnect from delete: disconnect blocks scans/actions but preserves local data; delete disassociates mailbox and removes related data. | Foundation Encoded |
+| A43 | Live Validation | Auth/Gmail | Prompt 08 auth/Gmail behavior is mocked and unit/integration tested, but live Google sign-in, Gmail consent, redirect wiring, and real Gmail API behavior still need manual reality contact. | Open |
+| A44 | Security Hardening | Auth/Security | ALPHA sessions use stateless JWT cookies; sign-out clears only the current browser cookie and does not revoke other issued sessions. | Deferred |
+| A45 | Security Hardening | Credential Storage | Gmail credentials are Fernet-encrypted with a local environment key. Production needs managed secret infrastructure and stronger operational key handling. | Deferred |
+| A46 | UX Polish | Frontend/Auth/Workflow | Authenticated real users with no connected mailbox/source data need a clear empty-state polish pass in Review and Decisions. | Open |
+| A47 | Dev UX / Auth Governance | Frontend/Backend Auth | Add a development-only Local ALPHA auth bypass so UI/workflow review can continue when Google OAuth is not configured. Must be disabled in production and must not imply Gmail connection or trigger ingestion. | Open |
 
 ---
 
@@ -792,28 +799,29 @@ Not allowed:
 
 Future model direction:
 
-Add an ingestion run concept when Gmail work begins.
+Prompt 07e added `IngestionRun`.
 
-Potential fields:
+Prompt 08 implemented manual-only bounded scan behavior.
 
-- `user_id`
-- `gmail_connection_id`
-- `trigger_type`: manual, scheduled, alpha_test
-- `scope`
-- `limit_count`
-- `lookback_window`
-- `started_at`
-- `completed_at`
-- `status`
-- `message_count_scanned`
-- `source_count_created`
-- `error_summary`
+Current ALPHA behavior:
+
+- no scan on app open
+- no scan on sign-in
+- no scan when Gmail is merely connected
+- no scan when Connections renders
+- scan only occurs through explicit manual user action
+- scan is bounded to 50 / 100 / 200 messages
+- default scan scope is `CATEGORY_PROMOTIONS`
+
+Status:
+
+Implemented for ALPHA.
 
 ### A33 - Gmail OAuth / API / Bounded Ingestion
 
 Decision:
 
-Defer live Gmail OAuth/API implementation until after A30/A31 are complete.
+Implemented for ALPHA with mocked automated validation; live Google/Gmail reality contact remains open.
 
 Rationale:
 
@@ -826,7 +834,6 @@ Initial ingestion direction:
 - connect through OAuth
 - use minimal necessary Gmail scopes
 - allow explicit manual scan
-- optionally prepare scheduled scan structure
 - import a bounded recent sample, such as latest 50 messages, not the full mailbox
 - normalize messages into source/vendor/cluster review rows
 - never execute external unsubscribe/archive/delete actions
@@ -834,6 +841,34 @@ Initial ingestion direction:
 Guardrail:
 
 No Gmail ingestion should occur on app open.
+
+Implementation result:
+
+Prompt 08 added:
+
+- Google app authentication using `openid`, `email`, and `profile`
+- separate Gmail authorization using Gmail read-only scope only
+- HttpOnly SameSite=Lax JWT session cookie
+- Fernet-encrypted Gmail OAuth credential storage
+- auth-gated source and decision endpoints
+- Connections view Gmail connect/reconnect/disconnect/manual-scan controls
+- bounded scan limits of 50 / 100 / 200, default 50
+- mocked automated tests for Google OAuth exchange, ID token verification, Gmail listing, and Gmail message metadata
+
+Validation:
+
+```text
+backend: python -m pytest -> 46 passed
+frontend: npm run test:run -> 13 passed
+frontend: npm run build -> passed
+alembic head/current -> 0006_gmail_credential_storage
+```
+
+Live Google sign-in and live Gmail OAuth/API were not exercised in the automated environment.
+
+Status:
+
+Implemented, needs live validation under A43.
 
 ### A34 - SANE Visual Identity / Palette Differentiation
 
@@ -1155,11 +1190,13 @@ Do not store full message bodies unless a later governed requirement proves it i
 
 Implementation result:
 
-Prompt 07e added the `IngestionRun` foundation without adding full email body storage or live Gmail ingestion.
+Prompt 07e added the `IngestionRun` foundation without adding full email body storage.
+
+Prompt 08 added manual bounded Gmail ingestion using minimal clustering/source-review data only. Automated tests use mocked Gmail metadata; live Gmail behavior remains to be validated under A43.
 
 Status:
 
-Foundation encoded.
+Implemented for ALPHA; live validation pending.
 
 ### A42 - Disconnect vs Delete Email Account
 
@@ -1190,26 +1227,168 @@ No external email actions should occur from disconnect or delete unless explicit
 
 Implementation result:
 
-Prompt 07e added mailbox connection status concepts, including the local-only ALPHA mailbox path. Delete/cascade behavior still requires careful review when real mailbox removal is implemented.
+Prompt 07e added mailbox connection status concepts, including the local-only ALPHA mailbox path.
+
+Prompt 08 implemented Gmail disconnect behavior:
+
+- clears stored Gmail credentials
+- blocks future scans
+- preserves local SANE source/decision data
+
+Delete/cascade behavior still requires careful review when real mailbox removal is implemented.
 
 Status:
 
-Foundation encoded.
+Disconnect implemented for ALPHA; delete deferred.
+
+### A43 - Live Google/Gmail Reality Contact
+
+Decision:
+
+Track as the next reality-contact step.
+
+Observation:
+
+Prompt 08 added mocked and tested auth/Gmail integration behavior, but did not exercise live Google sign-in or live Gmail OAuth/API calls.
+
+Future action:
+
+Run Prompt 09 or equivalent manual validation to prove:
+
+- Google Cloud OAuth configuration
+- redirect URI correctness
+- real Google sign-in
+- separate Gmail consent
+- connected Gmail account status
+- manual bounded `CATEGORY_PROMOTIONS` scan
+- IngestionRun status from live Gmail API behavior
+- Review source rows created from live Gmail metadata
+
+Guardrail:
+
+No live validation should use unbounded mailbox import or external email actions.
+
+### A44 - JWT Session Revocation Limitation
+
+Decision:
+
+Accept for ALPHA and track for production hardening.
+
+Observation:
+
+Prompt 08 uses an HttpOnly SameSite=Lax JWT cookie for the app session.
+
+Sign-out clears the current browser cookie, but there is no server-side JWT/session revocation table.
+
+Future action:
+
+Before production or multi-device/session-sensitive use, consider:
+
+- server-side session table
+- token revocation
+- forced sign-out
+- session expiry UX
+- refresh-token strategy if needed
+
+### A45 - Credential Encryption / Secret Management Hardening
+
+Decision:
+
+Accept local Fernet-based credential encryption for ALPHA, but track production hardening.
+
+Observation:
+
+Prompt 08 encrypts Gmail credentials with a local `SANE_CREDENTIAL_ENCRYPTION_KEY`.
+
+This is materially better than plaintext storage, but production still needs managed secret infrastructure and operational key handling.
+
+Future action:
+
+Before production, define:
+
+- managed key storage
+- key rotation strategy
+- backup/restore implications
+- deployment secret injection
+- credential revocation handling
+
+### A46 - Authenticated Empty-State UX
+
+Decision:
+
+Track as a near-term UX polish item.
+
+Observation:
+
+Prompt 08 correctly hides Local ALPHA demo data from real signed-in users. This may leave real users with empty Review/Decisions views until Gmail is connected and scanned.
+
+Future action:
+
+Add clear empty states for:
+
+- signed in but no Gmail connected
+- Gmail connected but no scan run
+- scan completed with no sources found
+- decisions empty because no source decisions exist yet
+
+### A47 - Development-Only Local Auth Bypass
+
+Decision:
+
+Add a governed local development auth bypass.
+
+Observation:
+
+Prompt 08 correctly gates the app on authentication, but local UI review is temporarily blocked when Google OAuth is not configured. Selecting sign-in currently returns:
+
+```json
+{
+  "detail": "Google OAuth is not configured."
+}
+```
+
+This is technically correct but slows UI/workflow review before live OAuth setup.
+
+Preferred direction:
+
+Add an explicit environment-controlled auth mode such as:
+
+```text
+SANE_AUTH_MODE=local_dev | google_oauth
+```
+
+Local development behavior:
+
+- `local_dev` mode shows a `Continue as Local ALPHA User` path.
+- It creates or reuses the Local ALPHA User session.
+- It does not connect Gmail.
+- It does not scan Gmail.
+- It does not imply external authorization.
+- UI should clearly indicate local/dev auth state.
+
+Production guardrail:
+
+- local dev auth must be blocked when production mode is active.
+- if `SANE_AUTH_MODE=google_oauth`, Google OAuth remains the sign-in path.
+- missing Google OAuth configuration should produce a friendly app-facing error rather than raw JSON.
+
+Status:
+
+Open; create Prompt 08b.
 
 ---
 
 ## Deferred Scope Guardrails
 
-Do not add these while resolving the issues above:
+Do not add these unless an active prompt explicitly authorizes them:
 
-- Gmail OAuth
-- Gmail API access
 - real unsubscribe/archive/delete actions
 - external AI provider calls
 - GTD workflow
 - billing or subscription enforcement
-- multi-account support
 - dashboards or analytics
+
+Gmail OAuth/API access and manual bounded ingestion are now authorized only within the Prompt 08/09 controlled path.
 
 ---
 

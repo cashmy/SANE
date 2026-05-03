@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.email_account import EmailAccount
+from app.models.user_email import UserEmail
 from app.models.enums import ConnectionStatus, EmailAccountProvider
 from app.models.user import User
 
@@ -13,18 +14,42 @@ _LOCAL_ALPHA_MAILBOX_NAME = "Local ALPHA Mailbox"
 
 
 def get_or_create_local_alpha_user(db: Session) -> User:
-    user = db.scalar(select(User).where(User.email == settings.local_user_email))
+    user = db.scalar(
+        select(User).where(User.is_local_alpha.is_(True)).order_by(User.id.asc())
+    )
     if user is not None:
+        _ensure_local_alpha_user_email(db, user)
         return user
 
     user = User(
-        email=settings.local_user_email,
         display_name=settings.local_user_display_name,
         is_local_alpha=True,
     )
     db.add(user)
     db.flush()
+    _ensure_local_alpha_user_email(db, user)
     return user
+
+
+def _ensure_local_alpha_user_email(db: Session, user: User) -> None:
+    existing = db.scalar(
+        select(UserEmail).where(
+            UserEmail.user_id == user.id,
+            UserEmail.email == settings.local_user_email,
+        )
+    )
+    if existing is not None:
+        return
+
+    db.add(
+        UserEmail(
+            user_id=user.id,
+            email=settings.local_user_email,
+            role="primary",
+            is_primary=True,
+            is_verified=True,
+        )
+    )
 
 
 def get_or_create_local_alpha_email_account(db: Session, user: User) -> EmailAccount:

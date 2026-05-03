@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.core.security import get_current_user
 from app.db.session import get_db
+from app.models.user import User
 from app.models.enums import CandidateSignal
 from app.schemas.workflow import SourceListResponse
 from app.services.workflow import list_sources
@@ -18,9 +20,11 @@ def read_sources(
     category: str | None = Query(default=None),
     signal: CandidateSignal | None = Query(default=None),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> SourceListResponse:
     result = list_sources(
         db,
+        user=user,
         include_processed=include_processed,
         page=page,
         page_size=page_size,

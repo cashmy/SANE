@@ -1,5 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { fetchMe, signOut } from "../services/auth";
+import type { UserMe } from "../types/auth";
+import { AccountMenu } from "./AccountMenu";
+import { SignInScreen } from "./SignInScreen";
 import { ThemeToggle } from "./ThemeToggle";
 import {
   ConnectionsView,
@@ -26,6 +30,49 @@ const viewTitles: Record<NavKey, string> = {
 
 export function AppShell() {
   const [activeView, setActiveView] = useState<NavKey>("review");
+  const [user, setUser] = useState<UserMe | null | undefined>(undefined);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadUser = async () => {
+      try {
+        const currentUser = await fetchMe();
+        if (!cancelled) {
+          setUser(currentUser);
+        }
+      } catch {
+        if (!cancelled) {
+          setUser(null);
+        }
+      }
+    };
+
+    void loadUser();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (user === undefined) {
+    return null;
+  }
+
+  if (user === null) {
+    return <SignInScreen />;
+  }
+
+  const handleSignOut = async () => {
+    setIsSigningOut(true);
+    try {
+      await signOut();
+    } finally {
+      setUser(null);
+      setIsSigningOut(false);
+    }
+  };
 
   return (
     <div className="app-shell">
@@ -49,7 +96,11 @@ export function AppShell() {
         </ul>
         <div className="sidebar-footer">
           <span className="alpha-tag">Stage 1 ALPHA</span>
-          <span className="user-placeholder">Local ALPHA User</span>
+          <AccountMenu
+            user={user}
+            isSigningOut={isSigningOut}
+            onSignOut={handleSignOut}
+          />
         </div>
       </nav>
 
@@ -60,7 +111,9 @@ export function AppShell() {
             <h1 className="toolbar-title">{viewTitles[activeView]}</h1>
           </div>
           <div className="toolbar-meta">
-            <span className="toolbar-pill">Local only</span>
+            <span className="toolbar-pill">
+              {user.is_local_alpha ? "Local only" : "Authenticated"}
+            </span>
             <ThemeToggle />
           </div>
         </header>

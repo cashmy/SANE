@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createBatchDecision, createDecision, listSources } from "./api";
+import {
+  createBatchDecision,
+  createDecision,
+  listEmailAccounts,
+  listSources,
+} from "./api";
 
 const jsonResponse = (body: unknown, init?: ResponseInit) =>
   new Response(JSON.stringify(body), {
@@ -71,6 +76,10 @@ describe("workflow api client", () => {
     expect(String(vi.mocked(fetch).mock.calls[0][0])).toBe(
       "http://localhost:8000/api/sources?page=2&page_size=10&search=daily+deals&category=Promotions&signal=promotional_digest",
     );
+    expect(vi.mocked(fetch).mock.calls[0][1]).toMatchObject({
+      credentials: "include",
+      method: "GET",
+    });
   });
 
   it("surfaces backend detail messages for rejected decisions", async () => {
@@ -112,12 +121,40 @@ describe("workflow api client", () => {
     expect(fetch).toHaveBeenCalledWith(
       "http://localhost:8000/api/decisions/batch",
       expect.objectContaining({
+        credentials: "include",
         method: "POST",
         body: JSON.stringify({
           source_ids: [1, 2, 3],
           decision: "mark_low_value",
           confirmed: true,
         }),
+      }),
+    );
+  });
+
+  it("requests Gmail accounts with cookies included", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse([
+        {
+          id: 12,
+          provider: "gmail",
+          account_email: "person@gmail.com",
+          display_name: "person@gmail.com",
+          connection_status: "connected",
+          granted_scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+        },
+      ]),
+    );
+
+    const response = await listEmailAccounts();
+
+    expect(response).toHaveLength(1);
+    expect(response[0].account_email).toBe("person@gmail.com");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/gmail/accounts",
+      expect.objectContaining({
+        credentials: "include",
+        method: "GET",
       }),
     );
   });

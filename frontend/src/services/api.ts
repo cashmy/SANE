@@ -4,16 +4,34 @@ import type {
   DecisionCreateRequest,
   DecisionListResponse,
   DecisionRecord,
-  SourceListResponse,
   CandidateSignal,
+  SourceListResponse,
 } from "../types/workflow";
+import type { EmailAccountInfo, IngestionRunSummary } from "../types/auth";
 
 export const apiConfig = {
   baseUrl: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000",
   healthPath: "/api/health",
+  authMePath: "/api/auth/me",
+  authLogoutPath: "/api/auth/logout",
+  authGoogleLoginPath: "/api/auth/google/login",
   sourcesPath: "/api/sources",
   decisionsPath: "/api/decisions",
+  gmailAccountsPath: "/api/gmail/accounts",
+  gmailConnectPath: "/api/gmail/connect",
+  gmailDisconnectPath: "/api/gmail/disconnect",
+  gmailScanPath: "/api/gmail/scan",
 };
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
 
 const defaultHeaders = {
   Accept: "application/json",
@@ -36,6 +54,7 @@ const getApiErrorMessage = async (response: Response) => {
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(`${apiConfig.baseUrl}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       ...defaultHeaders,
       ...(init?.headers ?? {}),
@@ -43,7 +62,11 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   });
 
   if (!response.ok) {
-    throw new Error(await getApiErrorMessage(response));
+    throw new ApiError(response.status, await getApiErrorMessage(response));
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   return (await response.json()) as T;
@@ -97,4 +120,33 @@ export const createBatchDecision = (payload: BatchDecisionCreateRequest) =>
   request<BatchDecisionResponse>(`${apiConfig.decisionsPath}/batch`, {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+
+export const listEmailAccounts = () =>
+  request<EmailAccountInfo[]>(apiConfig.gmailAccountsPath, {
+    method: "GET",
+  });
+
+export const listIngestionRuns = (accountId: number) =>
+  request<IngestionRunSummary[]>(
+    `${apiConfig.gmailAccountsPath.replace("/accounts", "")}/runs/${accountId}`,
+    {
+      method: "GET",
+    },
+  );
+
+export const triggerScan = (payload: {
+  email_account_id: number;
+  limit_count: number;
+  scope: string;
+}) =>
+  request<IngestionRunSummary>(apiConfig.gmailScanPath, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const disconnectGmailAccount = (emailAccountId: number) =>
+  request<void>(apiConfig.gmailDisconnectPath, {
+    method: "POST",
+    body: JSON.stringify({ email_account_id: emailAccountId }),
   });

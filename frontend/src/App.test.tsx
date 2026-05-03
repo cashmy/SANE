@@ -4,12 +4,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import type {
+  EmailAccountInfo,
+  IngestionRunSummary,
+  UserMe,
+} from "./types/auth";
+import type {
   DecisionRecord,
   DecisionValue,
   SourceListResponse,
   SourceRow,
   SourceSummary,
 } from "./types/workflow";
+
+const localAlphaUser: UserMe = {
+  id: 1,
+  email: "local-alpha@sane.local",
+  display_name: "Local ALPHA User",
+  is_local_alpha: true,
+};
 
 const seededSources: SourceRow[] = [
   {
@@ -193,11 +205,19 @@ const stateForDecision = (
   return "action_recommended";
 };
 
-const createMockBackend = (options?: { failSources?: boolean }) => {
+const createMockBackend = (options?: {
+  failSources?: boolean;
+  unauthenticated?: boolean;
+  gmailAccounts?: EmailAccountInfo[];
+  gmailRunsByAccount?: Record<number, IngestionRunSummary[]>;
+}) => {
   const state = {
+    accounts: options?.gmailAccounts ?? [],
+    runsByAccount: options?.gmailRunsByAccount ?? {},
     sources: seededSources.map(cloneSource),
     decisions: [] as DecisionRecord[],
     nextDecisionId: 50,
+    nextRunId: 1,
   };
 
   const synchronizeDecisionSourceState = (source: SourceRow) => {
@@ -259,6 +279,75 @@ const createMockBackend = (options?: { failSources?: boolean }) => {
   return async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     const method = init?.method ?? "GET";
+
+    if (url.pathname === "/api/auth/me" && method === "GET") {
+      if (options?.unauthenticated) {
+        return jsonResponse(
+          { detail: "Authentication required." },
+          { status: 401 },
+        );
+      }
+
+      return jsonResponse(localAlphaUser);
+    }
+
+    if (url.pathname === "/api/auth/logout" && method === "POST") {
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === "/api/gmail/accounts" && method === "GET") {
+      return jsonResponse(state.accounts);
+    }
+
+    if (url.pathname.startsWith("/api/gmail/runs/") && method === "GET") {
+      const accountId = Number(url.pathname.split("/").at(-1));
+      return jsonResponse(state.runsByAccount[accountId] ?? []);
+    }
+
+    if (url.pathname === "/api/gmail/disconnect" && method === "POST") {
+      const payload = JSON.parse(String(init?.body)) as {
+        email_account_id: number;
+      };
+      state.accounts = state.accounts.map((account) =>
+        account.id === payload.email_account_id
+          ? {
+              ...account,
+              connection_status: "disconnected",
+              granted_scopes: [],
+            }
+          : account,
+      );
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === "/api/gmail/scan" && method === "POST") {
+      const payload = JSON.parse(String(init?.body)) as {
+        email_account_id: number;
+        limit_count: number;
+        scope: string;
+      };
+      const run: IngestionRunSummary = {
+        id: state.nextRunId,
+        status: "completed",
+        scope: payload.scope,
+        limit_count: payload.limit_count,
+        message_count_scanned: payload.limit_count,
+        source_count_created: 2,
+        error_summary: null,
+        started_at: new Date(
+          Date.UTC(2026, 4, 2, 12, state.nextRunId),
+        ).toISOString(),
+        completed_at: new Date(
+          Date.UTC(2026, 4, 2, 12, state.nextRunId, 30),
+        ).toISOString(),
+      };
+      state.nextRunId += 1;
+      state.runsByAccount[payload.email_account_id] = [
+        run,
+        ...(state.runsByAccount[payload.email_account_id] ?? []),
+      ];
+      return jsonResponse(run);
+    }
 
     if (url.pathname === "/api/sources" && method === "GET") {
       if (options?.failSources) {
@@ -633,5 +722,72 @@ describe("App", () => {
     expect(
       screen.getByRole("button", { name: /switch to light mode/i }),
     ).toBeInTheDocument();
+  });
+
+  it("renders the sign-in screen when auth returns 401", async () => {
+    vi.mocked(fetch).mockImplementation(
+      createMockBackend({ unauthenticated: true }),
+    );
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("button", { name: /sign in with google/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("table", { name: /source review queue/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Connections view shows Gmail status and does not scan on render", async () => {
+    vi.mocked(fetch).mockImplementation(
+      createMockBackend({
+        gmailAccounts: [
+          {
+            id: 42,
+            provider: "gmail",
+            account_email: "person@gmail.com",
+            display_name: "person@gmail.com",
+            connection_status: "connected",
+            granted_scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+          },
+        ],
+        gmailRunsByAccount: {
+          42: [
+            {
+              id: 1,
+              status: "completed",
+              scope: "CATEGORY_PROMOTIONS",
+              limit_count: 50,
+              message_count_scanned: 50,
+              source_count_created: 4,
+              error_summary: null,
+              started_at: "2026-05-02T17:00:00.000Z",
+              completed_at: "2026-05-02T17:01:00.000Z",
+            },
+          ],
+        },
+      }),
+    );
+
+    render(<App />);
+
+    await screen.findByRole("table", { name: /source review queue/i });
+    await userEvent.click(screen.getByRole("button", { name: /connections/i }));
+
+    expect(
+      await screen.findByRole("heading", { name: /person@gmail.com/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/gmail read-only/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /scan now/i }),
+    ).toBeInTheDocument();
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(([input]) =>
+          String(input).includes("/api/gmail/scan"),
+        ),
+    ).toBe(false);
   });
 });

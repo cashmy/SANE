@@ -5,6 +5,7 @@ from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import Candidate, Decision
+from app.models.user import User
 from app.models.enums import CandidateSignal, CandidateState, DecisionValue
 from app.schemas.workflow import BatchDecisionCreate, DecisionCreate
 from app.services import action_executor
@@ -97,6 +98,7 @@ def ensure_demo_candidates(db: Session) -> EmailAccount:
 def list_sources(
     db: Session,
     *,
+    user: User,
     include_processed: bool = False,
     page: int = 1,
     page_size: int = 5,
@@ -104,7 +106,24 @@ def list_sources(
     category: str | None = None,
     signal: CandidateSignal | None = None,
 ) -> SourceListResult:
-    account = ensure_demo_candidates(db)
+    account = (
+        ensure_demo_candidates(db)
+        if user.is_local_alpha
+        else _get_first_account_or_none(db, user.id)
+    )
+    if account is None:
+        return SourceListResult(
+            items=[],
+            pagination=PaginationResult(
+                page=1,
+                page_size=page_size,
+                total_items=0,
+                total_pages=1,
+                has_previous=False,
+                has_next=False,
+            ),
+            available_categories=[],
+        )
 
     base_filters = [Candidate.email_account_id == account.id]
     if not include_processed:
@@ -167,25 +186,41 @@ def list_sources(
     )
 
 
-def list_decisions(db: Session) -> list[Decision]:
-    account = ensure_demo_candidates(db)
+def list_decisions(db: Session, *, user: User) -> list[Decision]:
+    if user.is_local_alpha:
+        account = ensure_demo_candidates(db)
+        decision_user_id = account.user_id
+    else:
+        decision_user_id = user.id
 
     statement = (
         select(Decision)
         .options(selectinload(Decision.candidate).selectinload(Candidate.decisions))
-        .where(Decision.user_id == account.user_id)
+        .where(Decision.user_id == decision_user_id)
         .order_by(Decision.created_at.desc(), Decision.id.desc())
     )
     return list(db.scalars(statement).all())
 
 
-def record_decision(db: Session, payload: DecisionCreate) -> DecisionWriteResult:
-    account = ensure_demo_candidates(db)
+def record_decision(
+    db: Session,
+    *,
+    user: User,
+    payload: DecisionCreate,
+) -> DecisionWriteResult:
+    account = (
+        ensure_demo_candidates(db)
+        if user.is_local_alpha
+        else _get_first_account_or_none(db, user.id)
+    )
 
     if not payload.confirmed:
         raise HumanApprovalRequiredError(
             "Explicit human confirmation is required before a decision is recorded."
         )
+
+    if account is None:
+        raise CandidateNotFoundError(f"Source {payload.source_id} was not found.")
 
     candidate = _get_source_or_raise(db, payload.source_id, account.id)
 
@@ -207,14 +242,24 @@ def record_decision(db: Session, payload: DecisionCreate) -> DecisionWriteResult
 
 def record_batch_decision(
     db: Session,
+    *,
+    user: User,
     payload: BatchDecisionCreate,
 ) -> BatchDecisionResult:
-    account = ensure_demo_candidates(db)
+    account = (
+        ensure_demo_candidates(db)
+        if user.is_local_alpha
+        else _get_first_account_or_none(db, user.id)
+    )
 
     if not payload.confirmed:
         raise HumanApprovalRequiredError(
             "Explicit human confirmation is required before a decision is recorded."
         )
+
+    if account is None:
+        missing_id = payload.source_ids[0] if payload.source_ids else 0
+        raise CandidateNotFoundError(f"Source {missing_id} was not found.")
 
     source_ids = list(dict.fromkeys(payload.source_ids))
     sources = list(
@@ -345,3 +390,11 @@ def _ordered_decisions(
     )
     by_id = {decision.id: decision for decision in decisions}
     return [by_id[decision_id] for decision_id in decision_ids if decision_id in by_id]
+
+
+def _get_first_account_or_none(db: Session, user_id: int) -> EmailAccount | None:
+    return db.scalar(
+        select(EmailAccount)
+        .where(EmailAccount.user_id == user_id)
+        .order_by(EmailAccount.id.asc())
+    )

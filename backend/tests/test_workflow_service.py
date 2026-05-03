@@ -30,7 +30,8 @@ from app.services.workflow import (
 
 
 def test_source_listing_returns_source_rows_with_email_counts(db_session) -> None:
-    result = list_sources(db_session, page=1, page_size=8)
+    user = get_or_create_local_alpha_user(db_session)
+    result = list_sources(db_session, user=user, page=1, page_size=8)
     account = db_session.scalar(
         select(EmailAccount).where(
             EmailAccount.provider == EmailAccountProvider.local_alpha
@@ -51,18 +52,20 @@ def test_source_listing_returns_source_rows_with_email_counts(db_session) -> Non
     )
     assert any(len(source.sender_emails) > 1 for source in result.items)
     assert any(source.email_count >= 40 for source in result.items)
-    assert list_decisions(db_session) == []
+    assert list_decisions(db_session, user=user) == []
 
 
 def test_record_decision_requires_explicit_human_confirmation(db_session) -> None:
     ensure_demo_candidates(db_session)
+    user = get_or_create_local_alpha_user(db_session)
     candidate = db_session.scalar(select(Candidate).order_by(Candidate.id.asc()))
     assert candidate is not None
 
     try:
         record_decision(
             db_session,
-            DecisionCreate(
+            user=user,
+            payload=DecisionCreate(
                 source_id=candidate.id,
                 decision=DecisionValue.mark_low_value,
                 confirmed=False,
@@ -82,6 +85,7 @@ def test_record_decision_persists_without_external_execution(
     db_session, monkeypatch
 ) -> None:
     ensure_demo_candidates(db_session)
+    user = get_or_create_local_alpha_user(db_session)
     candidate = db_session.scalar(select(Candidate).order_by(Candidate.id.asc()))
     assert candidate is not None
 
@@ -96,7 +100,8 @@ def test_record_decision_persists_without_external_execution(
 
     outcome = record_decision(
         db_session,
-        DecisionCreate(
+        user=user,
+        payload=DecisionCreate(
             source_id=candidate.id,
             decision=DecisionValue.unsubscribe_later,
             confirmed=True,
@@ -129,12 +134,14 @@ def test_record_decision_persists_without_external_execution(
 
 def test_repeating_the_same_decision_is_a_noop(db_session) -> None:
     ensure_demo_candidates(db_session)
+    user = get_or_create_local_alpha_user(db_session)
     candidate = db_session.scalar(select(Candidate).order_by(Candidate.id.asc()))
     assert candidate is not None
 
     first = record_decision(
         db_session,
-        DecisionCreate(
+        user=user,
+        payload=DecisionCreate(
             source_id=candidate.id,
             decision=DecisionValue.keep_for_now,
             confirmed=True,
@@ -142,7 +149,8 @@ def test_repeating_the_same_decision_is_a_noop(db_session) -> None:
     )
     second = record_decision(
         db_session,
-        DecisionCreate(
+        user=user,
+        payload=DecisionCreate(
             source_id=candidate.id,
             decision=DecisionValue.keep_for_now,
             confirmed=True,
@@ -157,12 +165,14 @@ def test_repeating_the_same_decision_is_a_noop(db_session) -> None:
 
 def test_revision_appends_a_new_history_event(db_session) -> None:
     ensure_demo_candidates(db_session)
+    user = get_or_create_local_alpha_user(db_session)
     candidate = db_session.scalar(select(Candidate).order_by(Candidate.id.asc()))
     assert candidate is not None
 
     first = record_decision(
         db_session,
-        DecisionCreate(
+        user=user,
+        payload=DecisionCreate(
             source_id=candidate.id,
             decision=DecisionValue.keep_for_now,
             confirmed=True,
@@ -170,14 +180,15 @@ def test_revision_appends_a_new_history_event(db_session) -> None:
     )
     second = record_decision(
         db_session,
-        DecisionCreate(
+        user=user,
+        payload=DecisionCreate(
             source_id=candidate.id,
             decision=DecisionValue.mark_low_value,
             confirmed=True,
         ),
     )
 
-    history = list_decisions(db_session)
+    history = list_decisions(db_session, user=user)
     db_session.expire_all()
     persisted_candidate = db_session.get(Candidate, candidate.id)
 
@@ -196,6 +207,7 @@ def test_batch_decision_requires_confirmation_and_stays_local(
     db_session, monkeypatch
 ) -> None:
     ensure_demo_candidates(db_session)
+    user = get_or_create_local_alpha_user(db_session)
     sources = list(
         db_session.scalars(
             select(Candidate).order_by(Candidate.id.asc()).limit(2)
@@ -215,7 +227,8 @@ def test_batch_decision_requires_confirmation_and_stays_local(
     try:
         record_batch_decision(
             db_session,
-            BatchDecisionCreate(
+            user=user,
+            payload=BatchDecisionCreate(
                 source_ids=[source.id for source in sources],
                 decision=DecisionValue.mark_low_value,
                 confirmed=False,
@@ -230,7 +243,8 @@ def test_batch_decision_requires_confirmation_and_stays_local(
 
     result = record_batch_decision(
         db_session,
-        BatchDecisionCreate(
+        user=user,
+        payload=BatchDecisionCreate(
             source_ids=[source.id for source in sources],
             decision=DecisionValue.mark_low_value,
             confirmed=True,
@@ -369,6 +383,7 @@ def test_decision_user_id_matches_source_email_account_user_id(db_session) -> No
     the source from which the decision was made.
     """
     ensure_demo_candidates(db_session)
+    user = get_or_create_local_alpha_user(db_session)
     candidate = db_session.scalar(select(Candidate).order_by(Candidate.id.asc()))
     assert candidate is not None
 
@@ -377,7 +392,8 @@ def test_decision_user_id_matches_source_email_account_user_id(db_session) -> No
 
     outcome = record_decision(
         db_session,
-        DecisionCreate(
+        user=user,
+        payload=DecisionCreate(
             source_id=candidate.id,
             decision=DecisionValue.mark_low_value,
             confirmed=True,

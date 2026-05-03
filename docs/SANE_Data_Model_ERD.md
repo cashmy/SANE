@@ -2,16 +2,17 @@
 
 ## Purpose
 
-This artifact records the SANE account/auth/mailbox/source data model after the A40/A41/A42 planning and Prompt 07e implementation pass.
+This artifact records the SANE account/auth/mailbox/source data model after the A40/A41/A42 planning pass, Prompt 07e foundation implementation, and Prompt 08 auth/Gmail implementation.
 
 It exists as a CORE/SKY review aid and as a future BASE reference.
 
 Implementation status:
 
 - Prompt 07e added the account/auth/mailbox/ingestion foundation.
-- Alembic head after this pass is `0003_email_account_foundation`.
-- Backend validation reported `21/21` tests passing.
-- Frontend regression validation reported `10/10` tests passing and build passing.
+- Prompt 08 added Google app authentication, separate Gmail authorization, encrypted Gmail credential storage, and manual bounded Gmail ingestion.
+- Alembic head after Prompt 08 is `0006_gmail_credential_storage`.
+- Backend validation reported `46/46` tests passing.
+- Frontend regression validation reported `13/13` tests passing and build passing.
 
 The key modeling lesson is:
 
@@ -79,6 +80,8 @@ erDiagram
       string account_email
       string display_name
       string connection_status
+      text credential_json
+      datetime token_expiry
       datetime created_at
       datetime updated_at
     }
@@ -135,6 +138,8 @@ The stable SANE account owner.
 
 Do not treat an email address as the user identity.
 
+Prompt 08 made any remaining `User.email` value legacy/nullable. `UserEmail` is authoritative for email ownership and account linking.
+
 ### UserEmail
 
 Email addresses associated with the user.
@@ -171,6 +176,8 @@ Examples:
 
 Mailbox access does not imply app sign-in method.
 
+Prompt 08 stores Gmail OAuth credentials as an encrypted credential blob on the email account for ALPHA. Tokens must never be exposed through frontend APIs.
+
 ### Candidate / Source
 
 The current model name is `Candidate`, but the product concept is source/vendor/sender cluster.
@@ -205,6 +212,15 @@ Allowed future triggers:
 - scheduled/chrono-controlled scan
 - bounded ALPHA/test scan
 
+Current ALPHA behavior:
+
+- manual user-requested scan only
+- default scan scope `CATEGORY_PROMOTIONS`
+- bounded scan limits 50 / 100 / 200
+- no scan on app open
+- no scan on sign-in
+- no scan on Connections view render
+
 ## Key Constraints
 
 Expected constraints:
@@ -224,6 +240,13 @@ unique(email_account_id, source_key)
 
 This supersedes both the original global `source_key` uniqueness and the interim user-scoped rule.
 
+Implemented email authority rule:
+
+```text
+UserEmail is authoritative for email addresses and verified-email linking.
+User.email is legacy/nullable only if still present for compatibility.
+```
+
 ## Disconnect vs Delete
 
 Disconnect means:
@@ -231,6 +254,7 @@ Disconnect means:
 - mailbox is not connected
 - scans/imports/actions are blocked
 - local SANE data is preserved
+- stored Gmail credentials are cleared for Prompt 08 ALPHA behavior
 
 Delete means:
 
@@ -248,6 +272,8 @@ Prefer minimal metadata/snippets needed for:
 - representative examples
 - dedupe/reference
 - human decision support
+
+Prompt 08 implemented this as minimal clustering/source-review storage from Gmail metadata/snippets only.
 
 ## Future Notes
 

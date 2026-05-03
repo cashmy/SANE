@@ -5,8 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.db.session import init_db
+from app.routers.auth import router as auth_router
 from app.routers.candidates import router as candidates_router
 from app.routers.decisions import router as decisions_router
+from app.routers.gmail import router as gmail_router
 from app.routers.health import router as health_router
 
 settings = get_settings()
@@ -34,6 +36,8 @@ if settings.cors_origins:
     )
 
 app.include_router(health_router, prefix=settings.api_prefix)
+app.include_router(auth_router, prefix=settings.api_prefix)
+app.include_router(gmail_router, prefix=settings.api_prefix)
 app.include_router(candidates_router, prefix=settings.api_prefix)
 app.include_router(decisions_router, prefix=settings.api_prefix)
 

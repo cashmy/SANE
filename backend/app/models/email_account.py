@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum as SqlEnum, ForeignKey, String, func
+from sqlalchemy import DateTime, Enum as SqlEnum, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -43,6 +43,10 @@ class EmailAccount(Base):
     connection_status: Mapped[ConnectionStatus] = mapped_column(
         SqlEnum(ConnectionStatus, native_enum=False),
         default=ConnectionStatus.local_only,
+    )
+    credential_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_expiry: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
