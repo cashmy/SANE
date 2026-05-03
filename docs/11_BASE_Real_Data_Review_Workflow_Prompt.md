@@ -2,9 +2,22 @@
 
 ## Status
 
-Draft prompt. Do not execute until Prompt 10 ingestion quality is complete or intentionally deferred by SKY.
+Ready for BASE clarification gate.
 
-Prompt 11 focuses on making the review workflow usable with real Gmail-derived source rows.
+Prompt 10 and Prompt 10b are complete.
+
+Current live ALPHA state:
+
+- Google sign-in works.
+- Gmail readonly connection works.
+- manual bounded `CATEGORY_PROMOTIONS` scans work.
+- sender-email source identity is intentionally preserved for ALPHA.
+- rescans are honest and report `source_count_seen`.
+- repeating a scan does not duplicate source rows.
+- local account reset works for `sources_and_decisions`.
+- live reset and fresh scan recreated pending source rows.
+
+Prompt 11 focuses on making the Review and Decisions workflow usable with real Gmail-derived source rows.
 
 ## Role
 
@@ -19,8 +32,10 @@ CORE has curated this real-data review workflow prompt.
 Active task:
 
 - improve the Review and Decisions workflow after real Gmail ingestion
+- add Decisions view pagination/page-size behavior
 - preserve source-oriented review
 - improve visibility of real-data context
+- preserve rescan/reset safety boundaries
 - keep external actions disabled
 
 Do not treat the full issue register as the active contract. The full register is CORE/SKY governance memory.
@@ -31,7 +46,8 @@ Before proposing or implementing changes, inspect:
 
 - `docs/RBA_HOMSP_BASE_Primer.md`
 - `docs/Stage1_ALPHA_Review_Issue_Register.md`
-- Prompt 08/09/10 reports/artifacts
+- `docs/SANE_Data_Model_ERD.md`
+- Prompt 08/09/09b/10/10b reports/artifacts
 - Review view
 - Decisions view
 - Connections view
@@ -47,12 +63,15 @@ Before executing implementation:
 1. Summarize the current Review workflow against real or realistic Gmail-derived source rows.
 2. Identify what becomes hard to use with real source volume.
 3. State which UI changes are necessary for usability and which are deferred.
-4. State whether backend API changes are needed for sorting/filtering/details.
-5. State how connected mailbox context will be shown.
-6. State how source detail/evidence will be surfaced without storing full bodies.
-7. State how Decisions view should distinguish current vs revised decisions.
-8. Ask clarifying questions if workflow meaning, decision semantics, or source evidence display is ambiguous.
-9. You must have human approval before implementation.
+4. State how A50 Decisions pagination/page-size will be implemented.
+5. State whether backend API changes are needed for sorting/filtering/details.
+6. State how connected mailbox context will be shown.
+7. State how source detail/evidence will be surfaced without storing full bodies.
+8. State how Decisions view should distinguish current vs revised decisions.
+9. State how any new controls avoid implying external Gmail action execution.
+10. Ask clarifying questions if workflow meaning, decision semantics, source evidence display, mailbox context, pagination, or action boundaries are ambiguous.
+11. Ask any other clarifying questions that arise from code inspection, test expectations, data model constraints, UI implications, or conflicts between this prompt and the existing implementation.
+12. You must have human approval before implementation.
 
 Do not treat post-hoc assumption reporting as a substitute for this gate.
 
@@ -82,8 +101,13 @@ Improve the Review view around:
 - search across source name, sender email, and domain
 - selected-row/batch state
 - explicit no-external-action boundary
+- post-reset / fresh-scan clarity if visible in the current workflow
 
 If backend API changes are needed for sorting/filtering, keep them narrow and tested.
+
+Do not implement broad dashboard redesign in this pass.
+
+Do not implement source merge/split or sender-level allow/block controls unless SKY explicitly approves expanding scope.
 
 ## Source Detail / Evidence Direction
 
@@ -113,6 +137,7 @@ Do not turn the app into an email reader.
 
 Improve Decisions view around:
 
+- pagination and page-size controls
 - current decision vs revision history
 - source name and mailbox context
 - decision timestamp
@@ -121,6 +146,15 @@ Improve Decisions view around:
 - filtering by decision type if useful
 
 Do not implement revision history compaction unless SKY explicitly approves in this pass.
+
+A50 requirement:
+
+- backend decision listing should support page and page size, or equivalent offset/limit.
+- response should include pagination metadata.
+- frontend Decisions view should expose page-size and page navigation.
+- current/revision semantics must remain visible.
+- no external email actions should be introduced.
+- filtering/search can be deferred unless it is low-risk and clearly useful.
 
 ## Workflow Guardrails
 
@@ -133,11 +167,16 @@ Preserve:
 - batch confirmation
 - no external unsubscribe/archive/delete actions
 - local data scoped to the authenticated user / connected mailbox
+- sender-email keyed ALPHA source identity unless SKY explicitly approves changing it
+- A52 marketing-vs-transactional action safety guardrail
+- rescan as local SANE refresh only
+- reset as local SANE cleanup only
 
 ## Testing
 
 Backend tests if API behavior changes:
 
+- Decisions pagination returns expected metadata and page-size behavior
 - sorting/filtering returns expected source rows
 - mailbox scoping is preserved
 - decision actions remain user/account scoped
@@ -147,6 +186,7 @@ Frontend tests:
 
 - real-data source rows render clearly
 - mailbox context is visible
+- Decisions pagination/page-size controls render and work
 - sort/filter controls work if added
 - source detail/evidence surface opens and closes if added
 - batch decision confirmation still works
@@ -165,6 +205,8 @@ Do not implement:
 - full body storage
 - broad dashboard/analytics redesign
 - Microsoft/IMAP integration
+- Connections reset redesign
+- Gmail ingestion normalization changes unless required to support Review/Decisions display
 
 ## Validation
 
@@ -193,4 +235,3 @@ Report:
 - tests added/updated
 - validation results
 - remaining usability risks before Tier 1 productization
-
