@@ -9,8 +9,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
-    from app.models.candidate import Candidate
+    from app.models.auth_identity import AuthIdentity
     from app.models.decision import Decision
+    from app.models.email_account import EmailAccount
+    from app.models.ingestion_run import IngestionRun
+    from app.models.user_email import UserEmail
 
 
 class User(Base):
@@ -27,5 +30,10 @@ class User(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    candidates: Mapped[list["Candidate"]] = relationship(back_populates="user")
+    # Decision.user_id is kept as a direct FK for query/authorization convenience.
+    # The invariant is: Decision.user_id == Source -> EmailAccount.user_id.
     decisions: Mapped[list["Decision"]] = relationship(back_populates="user")
+    user_emails: Mapped[list["UserEmail"]] = relationship(back_populates="user")
+    auth_identities: Mapped[list["AuthIdentity"]] = relationship(back_populates="user")
+    email_accounts: Mapped[list["EmailAccount"]] = relationship(back_populates="user")
+    ingestion_runs: Mapped[list["IngestionRun"]] = relationship(back_populates="user")

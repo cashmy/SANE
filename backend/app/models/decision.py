@@ -13,6 +13,11 @@ if TYPE_CHECKING:
     from app.models.candidate import Candidate
     from app.models.user import User
 
+# NOTE: Decision.user_id is kept as a direct FK to users (controlled denormalization).
+# It is intentionally retained for query/authorization convenience without forcing
+# every decision lookup through Source -> EmailAccount -> User.
+# Invariant: Decision.user_id must equal the source's EmailAccount.user_id.
+
 
 class Decision(Base):
     __tablename__ = "decisions"

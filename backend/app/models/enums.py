@@ -22,3 +22,49 @@ class DecisionValue(str, Enum):
 
 class ExternalActionStatus(str, Enum):
     not_executed = "not_executed"
+
+
+# ---------------------------------------------------------------------------
+# Account / auth / mailbox enums (A40)
+# ---------------------------------------------------------------------------
+
+
+class AuthProvider(str, Enum):
+    google = "google"
+    microsoft = "microsoft"
+    github = "github"
+    linkedin = "linkedin"
+    facebook = "facebook"
+    local_dev = "local_dev"
+    email_password = "email_password"
+    magic_link = "magic_link"
+
+
+class EmailAccountProvider(str, Enum):
+    gmail = "gmail"
+    microsoft = "microsoft"
+    imap = "imap"
+    local_alpha = "local_alpha"
+
+
+class ConnectionStatus(str, Enum):
+    connected = "connected"
+    disconnected = "disconnected"
+    expired = "expired"
+    revoked = "revoked"
+    error = "error"
+    local_only = "local_only"
+
+
+class IngestionTriggerType(str, Enum):
+    manual = "manual"
+    scheduled = "scheduled"
+    alpha_test = "alpha_test"
+
+
+class IngestionStatus(str, Enum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"

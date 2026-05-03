@@ -9,6 +9,7 @@ from sqlalchemy import (
     Enum as SqlEnum,
     Float,
     ForeignKey,
+    Index,
     String,
     Text,
     func,
@@ -20,16 +21,28 @@ from app.models.enums import CandidateSignal, CandidateState, DecisionValue
 
 if TYPE_CHECKING:
     from app.models.decision import Decision
-    from app.models.user import User
+    from app.models.email_account import EmailAccount
 
 
 class Candidate(Base):
     __tablename__ = "candidates"
+    __table_args__ = (
+        # Source identity is scoped to the email account (A40).
+        # unique(email_account_id, source_key) replaces the earlier user-scoped rule.
+        Index(
+            "ix_candidates_email_account_id_source_key",
+            "email_account_id",
+            "source_key",
+            unique=True,
+        ),
+    )
     # Internal SQLAlchemy name retained to reduce ALPHA churn; external contracts use source language.
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    source_key: Mapped[str] = mapped_column(String(160), unique=True, index=True)
+    email_account_id: Mapped[int] = mapped_column(
+        ForeignKey("email_accounts.id"), index=True
+    )
+    source_key: Mapped[str] = mapped_column(String(160))
     source_name: Mapped[str] = mapped_column(String(140))
     sender_emails: Mapped[list[str]] = mapped_column(JSON)
     email_count: Mapped[int]
@@ -57,7 +70,9 @@ class Candidate(Base):
     decisions: Mapped[list["Decision"]] = relationship(
         back_populates="candidate", cascade="all, delete-orphan"
     )
-    user: Mapped["User"] = relationship("User", back_populates="candidates")
+    email_account: Mapped["EmailAccount"] = relationship(
+        "EmailAccount", back_populates="candidates"
+    )
 
     @property
     def current_decision(self) -> DecisionValue | None:

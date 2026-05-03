@@ -188,5 +188,6 @@ def test_source_response_stays_inside_stage_one_boundary(client) -> None:
     assert "user_id" not in payload
     assert "owner_id" not in payload
     assert "account_id" not in payload
+    assert "email_account_id" not in payload
     assert "subscription_tier" not in payload
     assert "gtd_status" not in payload

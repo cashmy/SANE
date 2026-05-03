@@ -1,10 +1,12 @@
 import { useState } from "react";
 
 import { ThemeToggle } from "./ThemeToggle";
-import { ConnectionsView } from "./views/ConnectionsView";
-import { DecisionsView } from "./views/DecisionsView";
-import { ReviewView } from "./views/ReviewView";
-import { SettingsView } from "./views/SettingsView";
+import {
+  ConnectionsView,
+  DecisionsView,
+  ReviewView,
+  SettingsView,
+} from "./views";
 
 type NavKey = "review" | "decisions" | "connections" | "settings";
 

@@ -31,7 +31,7 @@ This repository currently contains a bounded Stage 1 ALPHA candidate:
 - React + Vite + TypeScript review UI
 - Python + FastAPI workflow API
 - PostgreSQL-backed runtime persistence with Alembic-managed schema
-- SQLite fallback/bootstrap path for local ALPHA recovery and deterministic tests
+- PostgreSQL-backed backend tests through a dedicated test database
 - local user ownership foundation for sources and decisions via the seeded `Local ALPHA User`
 - deterministic backend classifier for demo candidates
 - Pydantic-based backend settings
@@ -47,7 +47,8 @@ Current and planned architecture:
 flowchart LR
     User["User / Human Decision"] --> UI["React + Vite UI"]
     UI --> API["FastAPI Backend"]
-  API --> DB["PostgreSQL Runtime / SQLite Test Path"]
+    API --> DB["PostgreSQL Runtime"]
+  API -. "test only" .-> TestDB["PostgreSQL Test DB"]
 
     API -. "future" .-> Gmail["Gmail API + OAuth"]
     API -. "future" .-> AI["Bounded AI Classifier"]
@@ -75,7 +76,7 @@ SANE/
 
 - Frontend: React, Vite, TypeScript
 - Backend: Python, FastAPI
-- Data: SQLAlchemy 2.x, Pydantic, PostgreSQL runtime, SQLite deterministic test/bootstrap path
+- Data: SQLAlchemy 2.x, Pydantic, PostgreSQL runtime and dedicated PostgreSQL test database
 - Migrations: Alembic
 - Testing: Vitest and pytest
 - Future integrations: Gmail API, Google OAuth, bounded AI classifier
@@ -111,15 +112,20 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-PostgreSQL is now the primary integrated runtime database path. The default SQLite path is still resolved from the backend directory, so copying `.env.example` is safe without setting a database URL immediately.
+PostgreSQL is the required runtime database path for the backend. The backend now expects `SANE_DATABASE_URL` to be configured and will fail clearly if it is missing or points to SQLite during normal runtime.
 
-To run against PostgreSQL instead of the local SQLite ALPHA path, set `SANE_DATABASE_URL` in `backend/.env`, for example:
+Set `SANE_DATABASE_URL` and `SANE_TEST_DATABASE_URL` in `backend/.env`, for example:
 
 ```bash
-SANE_DATABASE_URL=postgresql+psycopg://postgres:PASSWORD@localhost:5432/sane
+SANE_DATABASE_URL=postgresql+psycopg://postgres:YOUR_PASSWORD@localhost:5432/sane
+SANE_TEST_DATABASE_URL=postgresql+psycopg://postgres:YOUR_PASSWORD@localhost:5432/sane_test
 ```
 
-Runtime schema changes should flow through Alembic. The pytest fixture keeps a dedicated deterministic SQLite metadata/bootstrap path for isolated tests, but Alembic is the formal runtime migration strategy.
+Runtime schema changes should flow through Alembic. SQLite is no longer a supported database for SANE runtime or DB-integrated backend tests. The old `backend/sane_alpha.db` file, if present, should be treated as a disposable legacy artifact rather than an authoritative database.
+
+Backend pytest now requires a separate PostgreSQL test database via `SANE_TEST_DATABASE_URL`. That database must already exist, must differ from `SANE_DATABASE_URL`, and its database name must include `test`.
+
+Before backend tests run, the pytest fixture applies `alembic upgrade head` to the test database and then truncates SANE app tables with `RESTART IDENTITY CASCADE` between tests so IDs and row state reset deterministically without dropping the database.
 
 Run backend tests:
 
@@ -142,8 +148,8 @@ Current workflow endpoints:
 - Stage 1 review workflow for demo candidates: review, decide, and preserve processed state
 - Backend candidate listing and decision recording endpoints
 - PostgreSQL-backed runtime persistence through `SANE_DATABASE_URL`
+- PostgreSQL-backed backend persistence/API tests through `SANE_TEST_DATABASE_URL`
 - Local ALPHA user ownership for sources and decisions without requiring real login yet
-- SQLite fallback/bootstrap support for deterministic tests and bounded local recovery
 - Deterministic classifier suggestions that remain subordinate to explicit human approval
 - Frontend loading, error, and processed-history states
 - No live email data or external email actions are executed yet

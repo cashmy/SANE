@@ -1,22 +1,106 @@
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 import app.models
+from app.core.config import BACKEND_DIR, get_settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 
-TEST_DATABASE_PATH = Path(__file__).resolve().parent / "test_runtime.db"
-TEST_DATABASE_URL = f"sqlite:///{TEST_DATABASE_PATH.as_posix()}"
+
+def _require_safe_test_database_url(
+    test_database_url: str | None,
+    runtime_database_url: str,
+) -> str:
+    if not test_database_url:
+        raise RuntimeError(
+            "SANE_TEST_DATABASE_URL is required for backend pytest and must point"
+            " to a dedicated PostgreSQL test database."
+        )
+
+    test_url = make_url(test_database_url)
+    runtime_url = make_url(runtime_database_url)
+
+    if test_url.get_backend_name() != "postgresql":
+        raise RuntimeError(
+            "SANE_TEST_DATABASE_URL must use a PostgreSQL URL. SQLite is no longer"
+            " supported for backend persistence or API validation tests."
+        )
+
+    if _database_identity(test_url) == _database_identity(runtime_url):
+        raise RuntimeError(
+            "SANE_TEST_DATABASE_URL must not equal SANE_DATABASE_URL. Backend tests"
+            " require a separate PostgreSQL database."
+        )
+
+    database_name = (test_url.database or "").lower()
+    if "test" not in database_name:
+        raise RuntimeError(
+            "SANE_TEST_DATABASE_URL must target a database whose name includes"
+            " 'test' so destructive resets cannot point at the runtime database."
+        )
+
+    return test_database_url
+
+
+def _database_identity(url: URL) -> tuple[str | None, ...]:
+    return (
+        url.drivername,
+        url.username,
+        url.password,
+        url.host,
+        str(url.port) if url.port is not None else None,
+        url.database,
+    )
+
+
+def _alembic_config(database_url: str) -> Config:
+    config = Config(str(ALEMBIC_CONFIG_PATH))
+    config.set_main_option("script_location", str(ALEMBIC_SCRIPT_LOCATION))
+    config.set_main_option("sqlalchemy.url", database_url)
+    config.attributes["sane_database_url"] = database_url
+    return config
+
+
+def _upgrade_test_database_to_head() -> None:
+    command.upgrade(_alembic_config(TEST_DATABASE_URL), "head")
+
+
+def _truncate_test_tables() -> None:
+    table_names = [
+        test_engine.dialect.identifier_preparer.format_table(table)
+        for table in Base.metadata.sorted_tables
+    ]
+    if not table_names:
+        return
+
+    with test_engine.begin() as connection:
+        connection.execute(
+            text(
+                "TRUNCATE TABLE " + ", ".join(table_names) + " RESTART IDENTITY CASCADE"
+            )
+        )
+
+
+settings = get_settings()
+RUNTIME_DATABASE_URL = settings.database_url
+TEST_DATABASE_URL = _require_safe_test_database_url(
+    settings.test_database_url,
+    RUNTIME_DATABASE_URL,
+)
+ALEMBIC_CONFIG_PATH = BACKEND_DIR / "alembic.ini"
+ALEMBIC_SCRIPT_LOCATION = BACKEND_DIR / "alembic"
 
 test_engine = create_engine(
     TEST_DATABASE_URL,
-    connect_args={"check_same_thread": False},
+    pool_pre_ping=True,
 )
 TestingSessionLocal = sessionmaker(
     bind=test_engine,
@@ -39,12 +123,18 @@ def _override_get_db():
         db.close()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def prepare_test_database() -> None:
+    _upgrade_test_database_to_head()
+    _truncate_test_tables()
+    yield
+    test_engine.dispose()
+
+
 @pytest.fixture(autouse=True)
 def reset_database() -> None:
-    Base.metadata.drop_all(bind=test_engine)
-    Base.metadata.create_all(bind=test_engine)
+    _truncate_test_tables()
     yield
-    Base.metadata.drop_all(bind=test_engine)
 
 
 @pytest.fixture

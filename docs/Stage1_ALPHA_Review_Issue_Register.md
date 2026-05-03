@@ -12,12 +12,13 @@ The fuller RBA/process version lives in the SANE-RBA artifact set.
 
 ## Current Validation
 
-CORE re-ran validation after BASE implementation.
+Latest BASE/CORE validation after Prompt 07e:
 
 ```text
-backend: python -m pytest -> 15 passed
+backend: python -m pytest -> 21 passed
 frontend: npm run test:run -> 10 passed
 frontend: npm run build -> passed
+alembic head/current -> 0003_email_account_foundation
 ```
 
 Validation note:
@@ -31,6 +32,8 @@ Validation note:
 
 - Stage 1 workflow is functional with local/demo source data.
 - Backend supports paginated source listing, single decisions, batch decisions, and decision history.
+- Backend now has a future-ready account/auth/mailbox foundation: UserEmail, AuthIdentity, EmailAccount, and IngestionRun.
+- Source identity is now scoped to EmailAccount through `unique(email_account_id, source_key)`.
 - Frontend supports source review, source counts, decision controls, batch selection, history, loading state, and error state.
 - External email actions are explicitly not executed.
 - Tests protect governance behaviors, not only rendering.
@@ -68,16 +71,22 @@ Validation note:
 | A24 | SKY Decision | Backend/Workflow Lifecycle | Add a way to clear or compact revision history past a selected point so decision history does not become its own clutter source. | Deferred |
 | A25 | Must Fix Before ALPHA Review | Frontend/Visual Design | Theme tokens are technically integrated, but components need visual tuning so the selected palette shapes the UI more intentionally and visible progress is legible to humans. | Partially Resolved |
 | A26 | Technical Debt | Backend/Data Model | Internal SQLAlchemy `Candidate` model/table name was retained to reduce ALPHA churn while API/UI/docs use source language. Rename to `Source`/`EmailSource` before the model hardens. | Open |
-| A27 | Deferred Scale Risk | Backend/Search | Source search uses simple ALPHA-scale filtering, including casted SQLite JSON email search. Replace with a deliberate large-scale search/index strategy before real mailbox volume. | Open |
+| A27 | Deferred Scale Risk | Backend/Search | Source search uses simple ALPHA-scale filtering. Replace with a deliberate PostgreSQL search/index strategy before real mailbox volume. | Open |
 | A28 | Architecture Reconsideration | Backend/Database | SQLite-first may be a Native workforce default that creates unnecessary churn under AI-Injected compressed development. Reconsider starting or moving quickly to PostgreSQL. | Decided |
 | A29 | RBA Recommendation | Process/UI Validation | Do not defer visible UI refinement solely because functionality works. Human reviewers often need visible change to perceive progress, trust the loop, and understand what changed. | Process Captured |
-| A30 | Architecture Foundation | Backend/Database | Migrate from SQLite-first ALPHA persistence to PostgreSQL-ready persistence with migration support before Gmail/auth/subscription work hardens around SQLite. | Partially Resolved |
+| A30 | Architecture Foundation | Backend/Database | Migrate from SQLite-first ALPHA persistence to PostgreSQL-ready persistence with migration support before Gmail/auth/subscription work hardens around SQLite. | Resolved for ALPHA |
 | A31 | Architecture Foundation | Backend/Auth Readiness | Add basic user/account ownership foundation so sources, decisions, settings, and future Gmail connections have a real owner. | Resolved for ALPHA |
 | A32 | Gmail Governance | Integration/Workflow | Gmail scanning/importing/analyzing must never run merely because the app opens; ingestion must be user-requested or chrono-controlled. | Decided |
 | A33 | Gmail Integration | Integration/API | Implement Gmail OAuth/API and bounded ingestion only after the database/user foundation is in place; first real-data contact should be limited by count and/or recency. | Deferred |
 | A34 | Visual Identity | Frontend/Design System | Current palette may be too close to the original UI to produce the expected perceived visual change; consider a stronger SANE visual identity pass after architecture foundation. | Open |
-| A35 | Architecture Risk | Backend/Data Model | `source_key` remains globally unique; future OAuth/multi-user work likely requires uniqueness scoped by user/account. | Open |
-| A36 | Validation Gap | Backend/Database | PostgreSQL is configured and migration-ready, but live PostgreSQL migration/runtime validation has not yet been exercised. | Open |
+| A35 | Must Fix Before Gmail | Backend/Data Model | `source_key` identity needed a higher-order ownership partition before Gmail/OAuth ingestion. The stepping-stone user-scoped fix was superseded by email-account-scoped uniqueness. | Resolved |
+| A36 | Validation Gap | Backend/Database | PostgreSQL is configured and migration-ready, but live PostgreSQL migration/runtime validation has not yet been exercised. | Resolved |
+| A37 | Architecture Foundation | Backend/Database | SQLite is no longer a supported runtime database; PostgreSQL is authoritative for app runtime. | Resolved |
+| A38 | Test Fidelity | Backend/Test | Backend persistence/API tests still use SQLite, creating possible false positives against PostgreSQL runtime behavior. Move DB-integrated backend tests to PostgreSQL. | Resolved |
+| A39 | Test Fidelity | Backend/Test | API tests use PostgreSQL-backed dependency override but still bypass FastAPI lifespan, so full runtime startup is not exercised on every API test. | Open |
+| A40 | Account Model | Backend/Data Model | Add future-ready account/auth/mailbox hierarchy before Gmail: UserEmail, AuthIdentity, EmailAccount, IngestionRun, and source identity scoped to EmailAccount. | Resolved for Foundation |
+| A41 | Privacy/Data Minimization | Backend/Gmail Readiness | Gmail ingestion should store minimal metadata/snippets for source classification, not full email bodies by default. | Foundation Encoded |
+| A42 | Mailbox Lifecycle | Backend/Workflow | Distinguish disconnect from delete: disconnect blocks scans/actions but preserves local data; delete disassociates mailbox and removes related data. | Foundation Encoded |
 
 ---
 
@@ -596,16 +605,16 @@ Defer, but track before real mailbox volume.
 
 Rationale:
 
-The current SQLite search behavior is acceptable for seeded/demo ALPHA data.
+The current simple PostgreSQL-backed search/filtering behavior is acceptable for seeded/demo ALPHA data.
 
 It is not a final strategy for tens of thousands of real emails or source clusters.
 
 Current risk:
 
 - simple filtering
-- casted JSON sender email search in SQLite
 - no full-text index
 - no source/domain search strategy
+- no deliberate high-volume PostgreSQL indexing plan yet
 
 Future action:
 
@@ -716,9 +725,15 @@ Validation:
 - frontend regression tests/build passed
 - Alembic path was exercised against a fresh SQLite file
 
-Remaining gap:
+PostgreSQL validation update:
 
-Live PostgreSQL was not exercised in the current environment. A30 is therefore partially resolved rather than fully resolved.
+SKY confirmed a local desktop PostgreSQL install was available.
+
+BASE then semi-interactively tested the PostgreSQL connection, executed the Alembic migration against PostgreSQL, and ran the full test suite.
+
+Status:
+
+Resolved for ALPHA.
 
 ### A31 - Basic User / Account Ownership Foundation
 
@@ -842,15 +857,19 @@ Guardrail:
 
 Do not reopen broad UI redesign during the immediate architecture foundation pass unless the UI blocks ALPHA review.
 
-### A35 - User-Scoped Source Key
+### A35 - Source Identity Scope
 
 Decision:
 
-Track before OAuth/multi-user hardening.
+Resolved.
 
 Observation:
 
 Prompt 07 kept `source_key` globally unique to reduce ALPHA churn.
+
+Deeper issue:
+
+SANE added `user_id` ownership, but `source_key` still behaves as if the app is single-user. That means user ownership exists, but it is not yet functioning as the higher-order partition for source identity.
 
 Risk:
 
@@ -858,15 +877,37 @@ In a real multi-user system, two users may have the same email source/vendor/sou
 
 Future action:
 
-Before live OAuth or multi-user use, consider replacing the global unique constraint with a user-scoped unique constraint such as:
+A35 was first corrected through user-scoped uniqueness:
 
 ```text
 unique(user_id, source_key)
 ```
 
+Prompt 07e then superseded that stepping-stone with the future-correct mailbox boundary:
+
+```text
+unique(email_account_id, source_key)
+```
+
+This better supports Tier 3 because one user may connect multiple mailboxes that contain the same source.
+
+Implementation result:
+
+- `Candidate.user_id` was replaced by `Candidate.email_account_id`.
+- The source uniqueness boundary is now email-account-scoped.
+- Existing local/demo sources are backfilled to a local ALPHA mailbox.
+- Existing API/frontend behavior remains unchanged.
+- PostgreSQL-backed backend tests prove the corrected ownership behavior.
+
 Guardrail:
 
-This does not need to block the current ALPHA local-user path, but it should not be forgotten before Gmail/account integration.
+Do not implement Gmail/OAuth as part of the A35/A40 foundation. This is the database/model landing zone so Prompt 08 has a clean boundary.
+
+Process lesson:
+
+`Do not implement Gmail yet` is not the same as `do not model for Gmail yet`.
+
+Because Gmail was an original product requirement, the database should have preserved its architectural landing zone even while live Gmail calls were deferred.
 
 ### A36 - Live PostgreSQL Validation
 
@@ -876,11 +917,9 @@ Track as a validation gap.
 
 Observation:
 
-The codebase is now PostgreSQL-ready in configuration and migration structure, but validation was performed through SQLite-backed automated tests plus SQLite Alembic migration exercise.
+The codebase is PostgreSQL-ready in configuration and migration structure, and the live local PostgreSQL path has now been exercised.
 
-Future action:
-
-Run a live local PostgreSQL validation:
+Validated action:
 
 ```powershell
 SANE_DATABASE_URL=postgresql+psycopg://...
@@ -888,11 +927,274 @@ alembic upgrade head
 python -m pytest
 ```
 
-or a documented equivalent.
+or a documented equivalent was run by BASE with SKY interaction.
 
 Status:
 
-Open until a real PostgreSQL target has been exercised.
+Resolved.
+
+### A37 - SQLite Runtime Deprecation
+
+Decision:
+
+SQLite should not remain a normal SANE runtime database.
+
+Implementation result:
+
+Prompt 07c removed SQLite fallback from runtime configuration.
+
+Current behavior:
+
+- `SANE_DATABASE_URL` is required for normal backend runtime.
+- Runtime startup rejects SQLite rather than silently treating it as supported.
+- `.env.example`, Alembic config, and README now present PostgreSQL as the authoritative runtime path.
+- The old SQLite database is documented as legacy/test-only.
+
+Validation:
+
+- backend tests passed
+- Alembic `current` reported `0002_user_scoped_source_key (head)` against PostgreSQL
+- Alembic `upgrade head` completed against PostgreSQL
+- frontend tests and build passed
+
+Status:
+
+Resolved.
+
+### A38 - PostgreSQL-Backed Backend Tests
+
+Decision:
+
+Backend persistence/API tests should move to PostgreSQL.
+
+Rationale:
+
+SQLite test fallback is common, but it can now create false positives because SANE's runtime database is PostgreSQL.
+
+Risk areas:
+
+- JSON behavior
+- constraints and indexes
+- transaction behavior
+- timestamp/default behavior
+- enum/check behavior
+- Alembic/runtime schema differences
+- SQL dialect differences
+
+Preferred direction:
+
+- introduce `SANE_TEST_DATABASE_URL`
+- use a separate local PostgreSQL test database such as `sane_test`
+- run DB-integrated backend tests against PostgreSQL
+- reset test data deterministically through transactions, truncation, or schema reset
+- keep runtime DB and test DB separate
+
+Guardrail:
+
+SQLite should not be used for backend persistence/API validation unless a test is explicitly pure/unit-level and does not validate database behavior.
+
+Implementation result:
+
+Prompt 07d moved backend pytest to PostgreSQL through `SANE_TEST_DATABASE_URL`.
+
+Current behavior:
+
+- tests require an existing PostgreSQL test database
+- test DB URL must be separate from runtime DB URL
+- test DB URL must be PostgreSQL
+- test DB name must include `test`
+- Alembic runs `upgrade head` against the test database before the suite
+- test data resets through `TRUNCATE ... RESTART IDENTITY CASCADE`
+- SQLite no longer backs runtime or DB-integrated backend tests
+
+Validation:
+
+- backend pytest passed 17/17 against PostgreSQL
+- frontend regression tests passed 10/10
+- frontend build passed
+
+Status:
+
+Resolved.
+
+### A39 - Lifespan Startup Test Gap
+
+Decision:
+
+Track as a narrower future test-fidelity issue.
+
+Observation:
+
+Prompt 07d made backend tests PostgreSQL-backed, but API tests still bypass the FastAPI lifespan and inject the test session directly.
+
+This validates PostgreSQL persistence/API behavior, but it does not exercise the full runtime startup path on every API test.
+
+Risk:
+
+Startup/lifespan issues could escape normal API tests if they only appear during app startup, runtime migration handling, or dependency initialization.
+
+Future action:
+
+Add one or more targeted startup/lifespan smoke tests against PostgreSQL, without making every API test slower or more brittle.
+
+Secondary reset caveat:
+
+The current deterministic reset truncates SQLAlchemy metadata tables. If future migrations add non-metadata tables or custom schemas, the reset strategy must be reviewed.
+
+### A40 - Account / Auth / Mailbox Data Model Foundation
+
+Decision:
+
+Add the future-ready account/auth/mailbox hierarchy before Gmail OAuth/API implementation.
+
+Rationale:
+
+SANE should not repeat the A35 issue by adding Gmail against an under-modeled ownership structure.
+
+Known future requirements include:
+
+- one SANE user with multiple login identities
+- one SANE user with multiple associated emails
+- one SANE user with multiple connected mailboxes
+- Gmail now, Microsoft/Outlook or other providers later
+- Tier 3 multi-email-account support
+
+Model direction:
+
+```text
+User
+-> UserEmail
+-> AuthIdentity
+-> EmailAccount
+    -> Source/Candidate
+    -> IngestionRun
+```
+
+Definitions:
+
+- `User` is the stable SANE account owner and should not be identified primarily by an email string.
+- `UserEmail` tracks primary/secondary/contact/login emails and verification state.
+- `AuthIdentity` tracks sign-in providers such as Google, Microsoft, GitHub, LinkedIn, Facebook, email/password, magic link, or local dev.
+- `EmailAccount` tracks connected mailboxes such as Gmail, Microsoft/Outlook, IMAP, or local ALPHA.
+- `IngestionRun` tracks explicit scan/import/analyze operations for one email account.
+
+Source identity direction:
+
+Source uniqueness should move from user-scoped to email-account-scoped:
+
+```text
+unique(email_account_id, source_key)
+```
+
+Local ALPHA direction:
+
+Create a local ALPHA email account/mailbox record so demo sources fit the same hierarchy before real Gmail exists:
+
+```text
+provider = local_alpha
+account_email = local-alpha@sane.local
+display_name = Local ALPHA Mailbox
+connection_status = local_only
+```
+
+Guardrail:
+
+Do not implement live OAuth or Gmail API calls in A40. This is the model landing zone for Prompt 08.
+
+Implementation result:
+
+Prompt 07e added:
+
+- `UserEmail`
+- `AuthIdentity`
+- `EmailAccount`
+- `IngestionRun`
+- new provider/status/ingestion enums
+- local ALPHA mailbox resolution through `ownership.py`
+- source ownership through `email_account_id`
+- source uniqueness through `unique(email_account_id, source_key)`
+- migration `0003_email_account_foundation`
+
+Validation:
+
+```text
+backend: python -m pytest -> 21 passed
+frontend: npm run test:run -> 10 passed
+frontend: npm run build -> passed
+alembic head/current -> 0003_email_account_foundation
+```
+
+Status:
+
+Resolved for foundation.
+
+### A41 - Gmail Data Minimization
+
+Decision:
+
+Store minimal Gmail-derived data by default.
+
+Rationale:
+
+The early goal is source governance, not full email archival.
+
+Initial ingestion should not download/store full email bodies or large volumes of full message content.
+
+Preferred early storage:
+
+- sender/from metadata
+- source/domain identity
+- labels/categories
+- dates
+- subject/snippet only if needed for representative examples/classification
+- message IDs or provider IDs where needed for dedupe/reference
+
+Guardrail:
+
+Do not store full message bodies unless a later governed requirement proves it is necessary.
+
+Implementation result:
+
+Prompt 07e added the `IngestionRun` foundation without adding full email body storage or live Gmail ingestion.
+
+Status:
+
+Foundation encoded.
+
+### A42 - Disconnect vs Delete Email Account
+
+Decision:
+
+Disconnect and delete are different lifecycle actions.
+
+Disconnect:
+
+- sets mailbox connection status to not connected / disconnected / revoked / expired / error
+- prevents scans/imports/actions
+- preserves local SANE data and decision history
+- supports cases where internet is down, OAuth is revoked, or malware/security concerns require isolation
+
+Delete:
+
+- disassociates the email account from SANE
+- removes related local mailbox data
+- should likely cascade delete email-account-owned sources, ingestion runs, and related records
+
+Future action:
+
+When delete is implemented, review cascade rules carefully so deletion is intentional and safe.
+
+Guardrail:
+
+No external email actions should occur from disconnect or delete unless explicitly designed and human-confirmed later.
+
+Implementation result:
+
+Prompt 07e added mailbox connection status concepts, including the local-only ALPHA mailbox path. Delete/cascade behavior still requires careful review when real mailbox removal is implemented.
+
+Status:
+
+Foundation encoded.
 
 ---
 
@@ -1144,3 +1446,150 @@ Out of scope for the A30/A31 foundation pass:
 - ingestion run execution
 - scheduled jobs
 - real mailbox imports
+
+### Contract A35 - Source Identity Scope
+
+Decision:
+
+Resolved through Prompt 07e.
+
+Implementation note:
+
+A35 originally targeted user-scoped source identity:
+
+```text
+unique(user_id, source_key)
+```
+
+That was correct as an intermediate fix after Prompt 07, but the A40 planning process revealed the stronger future boundary:
+
+```text
+unique(email_account_id, source_key)
+```
+
+Reason:
+
+Two users may have the same sender/source, and one user may later connect multiple mailboxes that contain the same sender/source.
+
+Current database rule:
+
+```text
+unique(email_account_id, source_key)
+```
+
+Implementation result:
+
+- Prompt 07b removed global source-key uniqueness and introduced user-scoped uniqueness.
+- Prompt 07e superseded that by adding `EmailAccount` and moving `Candidate` ownership to `email_account_id`.
+- Migration `0003_email_account_foundation` backfilled existing local ALPHA sources under a local ALPHA mailbox.
+- Existing API/frontend behavior remained unchanged.
+- Backend tests now prove the email-account ownership boundary.
+
+Residual risk:
+
+The internal table/class name `Candidate` still remains and is tracked separately under A26.
+
+Out of scope:
+
+- Gmail OAuth
+- Gmail API calls
+- frontend changes
+- subscription/account-tier work
+
+### Contract A40 / A41 / A42 - Account, Auth, Mailbox, and Ingestion Foundation
+
+Decision:
+
+Before Gmail OAuth/API implementation, create the future-ready account/auth/mailbox data model.
+
+Reason:
+
+SANE already knows it will need Gmail now, other mailbox providers later, and Tier 3 multiple email accounts. The schema should model that ownership hierarchy before live Gmail ingestion creates real data.
+
+Active scope:
+
+- add `UserEmail`
+- add `AuthIdentity`
+- add `EmailAccount`
+- add `IngestionRun`
+- create a local ALPHA email account/mailbox for existing demo/local sources
+- move source ownership from user-level identity toward email-account-level identity
+- change source uniqueness to `unique(email_account_id, source_key)`
+- preserve current API/frontend behavior
+- preserve local ALPHA user behavior
+- add/update Alembic migrations
+- add/update PostgreSQL-backed tests
+
+Model definitions:
+
+- `User`: stable SANE account owner with generated ID
+- `UserEmail`: emails associated with the user, including primary/secondary/contact/login emails and verification state
+- `AuthIdentity`: sign-in identities/providers; auth provider does not imply mailbox access
+- `EmailAccount`: connected mailbox/account SANE may scan; mailbox provider does not imply app login method
+- `IngestionRun`: explicit scan/import/analyze operation for one email account
+
+Provider examples:
+
+Auth providers may include:
+
+- google
+- microsoft
+- github
+- linkedin
+- facebook
+- local_dev
+- email_password
+- magic_link
+
+Email account providers may include:
+
+- gmail
+- microsoft
+- imap
+- local_alpha
+
+Local ALPHA mailbox:
+
+Create or resolve a local ALPHA email account so existing demo data has the same hierarchy as future Gmail data:
+
+```text
+provider = local_alpha
+account_email = local-alpha@sane.local
+display_name = Local ALPHA Mailbox
+connection_status = local_only
+```
+
+IngestionRun initial fields should support:
+
+- `user_id`
+- `email_account_id`
+- `trigger_type`
+- `status`
+- `scope`
+- `limit_count`
+- `lookback_window`
+- `started_at`
+- `completed_at`
+- `message_count_scanned`
+- `source_count_created`
+- `error_summary`
+
+Data minimization:
+
+Prepare for minimal Gmail-derived storage only. Do not add full email body storage.
+
+Disconnect vs delete:
+
+- disconnect/revoke/expire/error means scans and mailbox actions are not allowed, but local SANE data remains
+- delete means disassociate the mailbox and remove related local data, likely through carefully reviewed cascade behavior
+
+Out of scope:
+
+- live OAuth
+- Gmail API calls
+- actual scan execution
+- token encryption implementation unless a placeholder field is needed
+- real login UI
+- billing/subscription
+- Microsoft/IMAP integration
+- full message body storage

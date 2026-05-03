@@ -10,7 +10,11 @@ from app.schemas.workflow import BatchDecisionCreate, DecisionCreate
 from app.services import action_executor
 from app.services.classifier import classify_demo_candidate
 from app.services.demo_candidates import DEMO_CANDIDATES
-from app.services.ownership import get_or_create_local_alpha_user
+from app.models.email_account import EmailAccount
+from app.services.ownership import (
+    get_or_create_local_alpha_email_account,
+    get_or_create_local_alpha_user,
+)
 
 
 class HumanApprovalRequiredError(ValueError):
@@ -50,13 +54,17 @@ class BatchDecisionResult:
     unchanged: list[Decision]
 
 
-def ensure_demo_candidates(db: Session) -> None:
+def ensure_demo_candidates(db: Session) -> EmailAccount:
+    """Ensure the Local ALPHA demo candidates exist and return the local ALPHA email account."""
     user = get_or_create_local_alpha_user(db)
+    account = get_or_create_local_alpha_email_account(db, user)
     existing_count = db.scalar(
-        select(func.count()).select_from(Candidate).where(Candidate.user_id == user.id)
+        select(func.count())
+        .select_from(Candidate)
+        .where(Candidate.email_account_id == account.id)
     )
     if existing_count:
-        return user
+        return account
 
     for seed in DEMO_CANDIDATES:
         classification = classify_demo_candidate(
@@ -67,7 +75,7 @@ def ensure_demo_candidates(db: Session) -> None:
         )
         db.add(
             Candidate(
-                user_id=user.id,
+                email_account_id=account.id,
                 source_key=seed.source_key,
                 source_name=seed.source_name,
                 sender_emails=list(seed.sender_emails),
@@ -83,7 +91,7 @@ def ensure_demo_candidates(db: Session) -> None:
         )
 
     db.commit()
-    return user
+    return account
 
 
 def list_sources(
@@ -96,9 +104,9 @@ def list_sources(
     category: str | None = None,
     signal: CandidateSignal | None = None,
 ) -> SourceListResult:
-    user = ensure_demo_candidates(db)
+    account = ensure_demo_candidates(db)
 
-    base_filters = [Candidate.user_id == user.id]
+    base_filters = [Candidate.email_account_id == account.id]
     if not include_processed:
         base_filters.append(Candidate.processing_state == CandidateState.pending_review)
 
@@ -160,30 +168,31 @@ def list_sources(
 
 
 def list_decisions(db: Session) -> list[Decision]:
-    user = ensure_demo_candidates(db)
+    account = ensure_demo_candidates(db)
 
     statement = (
         select(Decision)
         .options(selectinload(Decision.candidate).selectinload(Candidate.decisions))
-        .where(Decision.user_id == user.id)
+        .where(Decision.user_id == account.user_id)
         .order_by(Decision.created_at.desc(), Decision.id.desc())
     )
     return list(db.scalars(statement).all())
 
 
 def record_decision(db: Session, payload: DecisionCreate) -> DecisionWriteResult:
-    user = ensure_demo_candidates(db)
+    account = ensure_demo_candidates(db)
 
     if not payload.confirmed:
         raise HumanApprovalRequiredError(
             "Explicit human confirmation is required before a decision is recorded."
         )
 
-    candidate = _get_source_or_raise(db, payload.source_id, user.id)
+    candidate = _get_source_or_raise(db, payload.source_id, account.id)
 
     result = _apply_decision(
         db,
         candidate=candidate,
+        user_id=account.user_id,
         decision_value=payload.decision,
         note=payload.note,
     )
@@ -191,7 +200,7 @@ def record_decision(db: Session, payload: DecisionCreate) -> DecisionWriteResult
         db.commit()
 
     return DecisionWriteResult(
-        decision=_load_decision(db, result.decision.id, user.id),
+        decision=_load_decision(db, result.decision.id, account.user_id),
         applied=result.applied,
     )
 
@@ -200,7 +209,7 @@ def record_batch_decision(
     db: Session,
     payload: BatchDecisionCreate,
 ) -> BatchDecisionResult:
-    user = ensure_demo_candidates(db)
+    account = ensure_demo_candidates(db)
 
     if not payload.confirmed:
         raise HumanApprovalRequiredError(
@@ -212,7 +221,7 @@ def record_batch_decision(
         db.scalars(
             select(Candidate).where(
                 Candidate.id.in_(source_ids),
-                Candidate.user_id == user.id,
+                Candidate.email_account_id == account.id,
             )
         ).all()
     )
@@ -229,6 +238,7 @@ def record_batch_decision(
         result = _apply_decision(
             db,
             candidate=sources_by_id[source_id],
+            user_id=account.user_id,
             decision_value=payload.decision,
             note=payload.note,
         )
@@ -241,8 +251,8 @@ def record_batch_decision(
         db.commit()
 
     return BatchDecisionResult(
-        applied=_ordered_decisions(db, applied_ids, user.id),
-        unchanged=_ordered_decisions(db, unchanged_ids, user.id),
+        applied=_ordered_decisions(db, applied_ids, account.user_id),
+        unchanged=_ordered_decisions(db, unchanged_ids, account.user_id),
     )
 
 
@@ -254,11 +264,13 @@ def _candidate_state_for_decision(decision: DecisionValue) -> CandidateState:
     return CandidateState.action_recommended
 
 
-def _get_source_or_raise(db: Session, source_id: int, user_id: int) -> Candidate:
+def _get_source_or_raise(
+    db: Session, source_id: int, email_account_id: int
+) -> Candidate:
     source = db.scalar(
         select(Candidate).where(
             Candidate.id == source_id,
-            Candidate.user_id == user_id,
+            Candidate.email_account_id == email_account_id,
         )
     )
     if source is None:
@@ -270,15 +282,18 @@ def _apply_decision(
     db: Session,
     *,
     candidate: Candidate,
+    user_id: int,
     decision_value: DecisionValue,
     note: str | None,
 ) -> DecisionWriteResult:
+    # user_id is passed explicitly (controlled denormalization).
+    # Invariant: user_id must equal candidate.email_account.user_id.
     latest = _latest_decision(db, candidate.id)
     if latest is not None and latest.decision == decision_value:
         return DecisionWriteResult(decision=latest, applied=False)
 
     decision = Decision(
-        user_id=candidate.user_id,
+        user_id=user_id,
         candidate_id=candidate.id,
         revised_from_decision_id=latest.id if latest is not None else None,
         decision=decision_value,
