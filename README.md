@@ -69,6 +69,7 @@ SANE/
   docs/
   frontend/
   backend/
+  count-lines.ps1
   README.md
 ```
 
@@ -135,6 +136,20 @@ pytest
 ```
 
 The backend exposes a health endpoint at `http://localhost:8000/api/health`.
+
+## Project Line Count
+
+To count project lines, including Markdown docs but excluding generated/vendor folders and lock files:
+
+```powershell
+.\count-lines.ps1
+```
+
+Optional detail view:
+
+```powershell
+.\count-lines.ps1 -Details
+```
 
 Current workflow endpoints:
 
