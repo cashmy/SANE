@@ -5,6 +5,25 @@ from typing import Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+_PLACEHOLDER_PREFIXES = (
+    "CHANGE_ME",
+    "GENERATE_",
+    "PASTE_",
+    "REPLACE_WITH",
+    "YOUR_",
+)
+
+
+def has_real_config_value(value: str | None) -> bool:
+    if value is None:
+        return False
+
+    normalized = value.strip()
+    if not normalized:
+        return False
+
+    upper_value = normalized.upper()
+    return not any(upper_value.startswith(prefix) for prefix in _PLACEHOLDER_PREFIXES)
 
 
 class Settings(BaseSettings):
@@ -32,6 +51,11 @@ class Settings(BaseSettings):
     google_client_secret: str | None = None
     oauth_redirect_uri: str = "http://localhost:8000/api/auth/google/callback"
     gmail_redirect_uri: str = "http://localhost:8000/api/gmail/callback"
+
+    def google_oauth_is_configured(self) -> bool:
+        return has_real_config_value(self.google_client_id) and has_real_config_value(
+            self.google_client_secret
+        )
 
 
 @lru_cache

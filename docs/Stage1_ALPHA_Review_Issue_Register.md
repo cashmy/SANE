@@ -12,13 +12,16 @@ The fuller RBA/process version lives in the SANE-RBA artifact set.
 
 ## Current Validation
 
-Latest BASE validation after Prompt 08d:
+Latest validation after Prompt 09b:
 
 ```text
-backend: python -m pytest -> 51 passed
-frontend: npm run test:run -> 20 passed
+backend: python -m pytest -> 54 passed
+frontend: npm run test:run -> 21 passed
 frontend: npm run build -> passed
 alembic head/current -> 0006_gmail_credential_storage
+live Google sign-in -> succeeded
+live Gmail readonly connection -> succeeded
+manual CATEGORY_PROMOTIONS scan -> 50 messages checked, 32 sources created
 ```
 
 Validation note:
@@ -82,7 +85,7 @@ Validation note:
 | A30 | Architecture Foundation | Backend/Database | Migrate from SQLite-first ALPHA persistence to PostgreSQL-ready persistence with migration support before Gmail/auth/subscription work hardens around SQLite. | Resolved for ALPHA |
 | A31 | Architecture Foundation | Backend/Auth Readiness | Add basic user/account ownership foundation so sources, decisions, settings, and future Gmail connections have a real owner. | Resolved for ALPHA |
 | A32 | Gmail Governance | Integration/Workflow | Gmail scanning/importing/analyzing must never run merely because the app opens; ingestion must be user-requested or chrono-controlled. Prompt 08 implements manual-only bounded scan behavior. | Implemented for ALPHA |
-| A33 | Gmail Integration | Integration/API | Implement Gmail OAuth/API and bounded ingestion only after the database/user foundation is in place; first real-data contact should be limited by count and/or recency. Prompt 08 implemented mocked Google sign-in, Gmail connect, and manual bounded ingestion. | Implemented, Needs Live Validation |
+| A33 | Gmail Integration | Integration/API | Implement Gmail OAuth/API and bounded ingestion only after the database/user foundation is in place; first real-data contact should be limited by count and/or recency. Prompt 09 completed live Google sign-in, Gmail readonly connection, and one bounded manual scan. | Live Validated for ALPHA |
 | A34 | Visual Identity | Frontend/Design System | Current palette may be too close to the original UI to produce the expected perceived visual change; consider a stronger SANE visual identity pass after architecture foundation. | Open |
 | A35 | Must Fix Before Gmail | Backend/Data Model | `source_key` identity needed a higher-order ownership partition before Gmail/OAuth ingestion. The stepping-stone user-scoped fix was superseded by email-account-scoped uniqueness. | Resolved |
 | A36 | Validation Gap | Backend/Database | PostgreSQL is configured and migration-ready, but live PostgreSQL migration/runtime validation has not yet been exercised. | Resolved |
@@ -92,12 +95,13 @@ Validation note:
 | A40 | Account Model | Backend/Data Model | Add future-ready account/auth/mailbox hierarchy before Gmail: UserEmail, AuthIdentity, EmailAccount, IngestionRun, and source identity scoped to EmailAccount. | Resolved for Foundation |
 | A41 | Privacy/Data Minimization | Backend/Gmail Readiness | Gmail ingestion should store minimal metadata/snippets for source classification, not full email bodies by default. | Foundation Encoded |
 | A42 | Mailbox Lifecycle | Backend/Workflow | Distinguish disconnect from delete: disconnect blocks scans/actions but preserves local data; delete disassociates mailbox and removes related data. | Foundation Encoded |
-| A43 | Live Validation | Auth/Gmail | Prompt 08 auth/Gmail behavior is mocked and unit/integration tested, but live Google sign-in, Gmail consent, redirect wiring, and real Gmail API behavior still need manual reality contact. | Open |
+| A43 | Live Validation | Auth/Gmail | Prompt 09 completed first live Google/Gmail reality contact: Google sign-in, separate Gmail readonly consent, explicit 50-message CATEGORY_PROMOTIONS scan, IngestionRun status, and live Review source rows. | Resolved for First ALPHA Reality Contact |
 | A44 | Security Hardening | Auth/Security | ALPHA sessions use stateless JWT cookies; sign-out clears only the current browser cookie and does not revoke other issued sessions. | Deferred |
 | A45 | Security Hardening | Credential Storage | Gmail credentials are Fernet-encrypted with a local environment key. Production needs managed secret infrastructure and stronger operational key handling. | Deferred |
 | A46 | UX Polish | Frontend/Auth/Workflow | Authenticated real users with no connected mailbox/source data need a clear empty-state polish pass in Review and Decisions. | Implemented for ALPHA |
 | A47 | Dev UX / Auth Governance | Frontend/Backend Auth | Add a development-only Local ALPHA auth bypass so UI/workflow review can continue when Google OAuth is not configured. Must be disabled in production and must not imply Gmail connection or trigger ingestion. | Implemented for ALPHA |
 | A48 | UX Polish | Frontend/Auth/Navigation | Auth/runtime status and display mode controls are visually conflated in the top nav, and Local ALPHA status is over-informative/duplicated in the sidebar footer. Separate controls and simplify persistent identity/status display. | Implemented for ALPHA |
+| A49 | Live OAuth Hardening | Backend/Auth | Chrome live auth exposed a `jwt.exceptions.ImmatureSignatureError` when the local machine clock was out of sync. Time sync fixed it, but OAuth token validation should allow small clock skew and fail gracefully instead of showing a raw 500 debugger page. | Implemented for ALPHA |
 
 ---
 
@@ -1438,6 +1442,55 @@ Validation:
 Scope note:
 
 - Prompt 08c cleaned up auth/status/navigation presentation, and Prompt 08d completed the first authenticated empty-state polish without backend/API changes.
+
+### A49 - OAuth Time-Skew Hardening
+
+Observation:
+
+After Prompt 09 live validation succeeded in the VS Code browser test path, Chrome exposed a backend 500 during Google auth callback:
+
+```text
+jwt.exceptions.ImmatureSignatureError: The token is not yet valid (iat)
+```
+
+SKY synchronized Windows time, retried, and the issue was resolved.
+
+Decision:
+
+Treat this as live OAuth hardening rather than a browser-cache issue.
+
+Required repair:
+
+- allow small JWT time-claim clock skew during Google ID token verification
+- recommended leeway: 120 seconds
+- handle immature/not-yet-valid token errors gracefully
+- avoid raw Starlette debugger exposure
+- do not create user/AuthIdentity/Gmail/ingestion side effects on failed auth
+- preserve the successful Google sign-in and separate Gmail authorization path
+
+Status:
+
+Implemented for ALPHA.
+
+Prompt 09b repair results:
+
+- Google ID token verification now allows 120 seconds of clock-skew leeway.
+- Immature/not-yet-valid Google ID tokens redirect back to the frontend with a friendly sign-in error instead of exposing a raw backend debugger page.
+- The failed callback path does not create a user, AuthIdentity, Gmail account, or IngestionRun.
+- Backend tests cover within-leeway acceptance, outside-leeway rejection, and the graceful callback failure path.
+- Frontend tests cover the user-facing sign-in error surfaced from the callback redirect.
+
+Validation:
+
+```text
+backend: python -m pytest -> 54 passed
+frontend: npm run test:run -> 21 passed
+frontend: npm run build -> passed
+```
+
+Live retest note:
+
+- No live browser retest was performed for an intentionally skewed system clock after the repair.
 
 ---
 

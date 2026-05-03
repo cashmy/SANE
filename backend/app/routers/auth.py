@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 from secrets import token_urlsafe
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -17,6 +19,8 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.auth import AuthConfig, UserMe
 from app.services.auth_service import (
+    GOOGLE_CLOCK_SKEW_ERROR_MESSAGE,
+    GoogleIdTokenClockSkewError,
     OAuthNotConfiguredError,
     exchange_google_code,
     find_or_create_user,
@@ -27,10 +31,12 @@ from app.services.auth_service import (
 from app.services.ownership import get_or_create_local_alpha_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 _GOOGLE_OAUTH_LOCAL_MESSAGE = (
     "Google OAuth is not configured for this local environment."
 )
+_CLOCK_SKEW_AUTH_ERROR = "device_clock_out_of_sync"
 _LOCAL_DEV_AUTH_DISABLED_DETAIL = "Local development auth is not enabled."
 _LOCAL_DEV_AUTH_BLOCKED_DETAIL = (
     "Local development auth is blocked outside development."
@@ -39,7 +45,7 @@ _LOCAL_DEV_AUTH_BLOCKED_DETAIL = (
 
 def _google_oauth_enabled() -> bool:
     settings = get_settings()
-    return bool(settings.google_client_id and settings.google_client_secret)
+    return settings.google_oauth_is_configured()
 
 
 def _local_dev_auth_enabled() -> bool:
@@ -53,6 +59,32 @@ def _serialize_user(user: User) -> UserMe:
         email=primary_user_email(user),
         display_name=user.display_name,
         is_local_alpha=user.is_local_alpha,
+    )
+
+
+def _clear_oauth_state_cookie(response: Response) -> None:
+    settings = get_settings()
+    response.delete_cookie(
+        OAUTH_STATE_COOKIE_NAME,
+        httponly=True,
+        samesite="lax",
+        secure=settings.frontend_url.startswith("https://"),
+    )
+
+
+def _frontend_auth_error_url(error_code: str) -> str:
+    settings = get_settings()
+    parts = urlsplit(settings.frontend_url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["auth_error"] = error_code
+    return urlunsplit(
+        (
+            parts.scheme,
+            parts.netloc,
+            parts.path,
+            urlencode(query),
+            parts.fragment,
+        )
     )
 
 
@@ -150,7 +182,14 @@ def google_callback(
             detail="Google sign-in response did not include an ID token.",
         )
 
-    claims = verify_google_id_token(id_token)
+    try:
+        claims = verify_google_id_token(id_token)
+    except GoogleIdTokenClockSkewError as exc:
+        logger.warning("Google sign-in failed due to local clock skew: %s", exc)
+        response = RedirectResponse(_frontend_auth_error_url(_CLOCK_SKEW_AUTH_ERROR))
+        _clear_oauth_state_cookie(response)
+        return response
+
     sub = claims.get("sub")
     if not isinstance(sub, str) or not sub:
         raise HTTPException(
@@ -176,12 +215,7 @@ def google_callback(
         samesite="lax",
         secure=settings.frontend_url.startswith("https://"),
     )
-    response.delete_cookie(
-        OAUTH_STATE_COOKIE_NAME,
-        httponly=True,
-        samesite="lax",
-        secure=settings.frontend_url.startswith("https://"),
-    )
+    _clear_oauth_state_cookie(response)
     return response
 
 

@@ -9,6 +9,9 @@ import type { AuthConfig, UserMe } from "../types/auth";
 
 const GOOGLE_NOT_READY_MESSAGE =
   "Google OAuth is not configured for this local environment.";
+const CLOCK_SKEW_AUTH_ERROR = "device_clock_out_of_sync";
+const CLOCK_SKEW_AUTH_ERROR_MESSAGE =
+  "Google sign-in could not be completed because this device clock appears out of sync. Sync your system time and try again.";
 
 interface SignInScreenProps {
   onAuthenticated: (user: UserMe) => void;
@@ -21,6 +24,27 @@ const toErrorMessage = (error: unknown) => {
   return "Sign-in could not be started.";
 };
 
+const readAuthErrorFromLocation = () => {
+  const url = new URL(window.location.href);
+  const authError = url.searchParams.get("auth_error");
+  if (!authError) {
+    return null;
+  }
+
+  url.searchParams.delete("auth_error");
+  window.history.replaceState(
+    {},
+    document.title,
+    `${url.pathname}${url.search}${url.hash}`,
+  );
+
+  if (authError === CLOCK_SKEW_AUTH_ERROR) {
+    return CLOCK_SKEW_AUTH_ERROR_MESSAGE;
+  }
+
+  return "Google sign-in could not be completed.";
+};
+
 export function SignInScreen({ onAuthenticated }: SignInScreenProps) {
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -29,6 +53,10 @@ export function SignInScreen({ onAuthenticated }: SignInScreenProps) {
 
   useEffect(() => {
     let cancelled = false;
+    const authError = readAuthErrorFromLocation();
+    if (authError) {
+      setErrorMessage(authError);
+    }
 
     const loadAuthConfig = async () => {
       try {

@@ -1,10 +1,87 @@
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
+from cryptography.hazmat.primitives.asymmetric import rsa
+import jwt
+import pytest
 from sqlalchemy import func, select
 
+from app.core.config import get_settings
 from app.models.auth_identity import AuthIdentity
 from app.models.enums import AuthProvider
 from app.models.user import User
 from app.models.user_email import UserEmail
-from app.services.auth_service import find_or_create_user
+from app.services.auth_service import (
+    GOOGLE_ID_TOKEN_LEEWAY_SECONDS,
+    GoogleIdTokenClockSkewError,
+    find_or_create_user,
+    verify_google_id_token,
+)
+
+
+def _set_google_auth_settings(monkeypatch) -> str:
+    settings = get_settings()
+    client_id = "google-client-id.apps.googleusercontent.com"
+    monkeypatch.setattr(settings, "google_client_id", client_id)
+    monkeypatch.setattr(settings, "google_client_secret", "google-client-secret")
+    return client_id
+
+
+def _issue_google_id_token(*, client_id: str, issued_at_offset_seconds: int):
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = datetime.now(timezone.utc)
+    token = jwt.encode(
+        {
+            "sub": "google-sub-test",
+            "iss": "https://accounts.google.com",
+            "aud": client_id,
+            "iat": now + timedelta(seconds=issued_at_offset_seconds),
+            "exp": now + timedelta(minutes=5),
+            "email": "owner@example.com",
+        },
+        private_key,
+        algorithm="RS256",
+    )
+    return token, private_key.public_key()
+
+
+def test_verify_google_id_token_accepts_small_clock_skew_within_leeway(
+    monkeypatch,
+) -> None:
+    client_id = _set_google_auth_settings(monkeypatch)
+    token, public_key = _issue_google_id_token(
+        client_id=client_id,
+        issued_at_offset_seconds=GOOGLE_ID_TOKEN_LEEWAY_SECONDS - 30,
+    )
+    monkeypatch.setattr(
+        "app.services.auth_service.jwt.PyJWKClient",
+        lambda _url: SimpleNamespace(
+            get_signing_key_from_jwt=lambda _token: SimpleNamespace(key=public_key)
+        ),
+    )
+
+    claims = verify_google_id_token(token)
+
+    assert claims["sub"] == "google-sub-test"
+
+
+def test_verify_google_id_token_raises_clock_skew_error_outside_leeway(
+    monkeypatch,
+) -> None:
+    client_id = _set_google_auth_settings(monkeypatch)
+    token, public_key = _issue_google_id_token(
+        client_id=client_id,
+        issued_at_offset_seconds=GOOGLE_ID_TOKEN_LEEWAY_SECONDS + 60,
+    )
+    monkeypatch.setattr(
+        "app.services.auth_service.jwt.PyJWKClient",
+        lambda _url: SimpleNamespace(
+            get_signing_key_from_jwt=lambda _token: SimpleNamespace(key=public_key)
+        ),
+    )
+
+    with pytest.raises(GoogleIdTokenClockSkewError):
+        verify_google_id_token(token)
 
 
 def test_find_or_create_user_creates_new_user_identity_and_verified_email(

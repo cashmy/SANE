@@ -563,6 +563,7 @@ describe("App", () => {
     consoleErrorSpy.mockRestore();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    window.history.replaceState({}, "", "/");
     document.documentElement.removeAttribute("data-theme");
     localStorage.removeItem("sane-theme");
   });
@@ -1004,6 +1005,24 @@ describe("App", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /google oauth is not configured for this local environment/i,
     );
+  });
+
+  it("shows a friendly in-app error when the auth callback reports device clock skew", async () => {
+    window.history.pushState({}, "", "/?auth_error=device_clock_out_of_sync");
+    vi.mocked(fetch).mockImplementation(
+      createMockBackend({
+        unauthenticated: true,
+      }),
+    );
+
+    render(<App />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /device clock appears out of sync/i,
+    );
+    await waitFor(() => {
+      expect(window.location.search).toBe("");
+    });
   });
 
   it("Connections view shows Gmail status and does not scan on render", async () => {

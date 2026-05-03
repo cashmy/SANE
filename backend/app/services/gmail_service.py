@@ -464,7 +464,7 @@ def _upsert_candidate(
 
 def _require_google_oauth_config():
     settings = get_settings()
-    if not settings.google_client_id or not settings.google_client_secret:
+    if not settings.google_oauth_is_configured():
         raise OAuthNotConfiguredError("Google OAuth is not configured.")
     return settings
 

@@ -10,9 +10,9 @@ Implementation status:
 
 - Prompt 07e added the account/auth/mailbox/ingestion foundation.
 - Prompt 08 added Google app authentication, separate Gmail authorization, encrypted Gmail credential storage, and manual bounded Gmail ingestion.
+- Prompt 09 completed first live reality contact: Google sign-in, separate Gmail readonly consent, and one explicit 50-message `CATEGORY_PROMOTIONS` scan that created 32 live source rows.
 - Alembic head after Prompt 08 is `0006_gmail_credential_storage`.
-- Backend validation reported `46/46` tests passing.
-- Frontend regression validation reported `13/13` tests passing and build passing.
+- Latest automated validation before the live Prompt 09 pass reported backend `51/51` tests passing, frontend `20/20` tests passing, and build passing.
 
 The key modeling lesson is:
 

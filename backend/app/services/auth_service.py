@@ -19,9 +19,18 @@ _GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 _GOOGLE_SIGNIN_SCOPES = ["openid", "email", "profile"]
 _GOOGLE_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
+GOOGLE_ID_TOKEN_LEEWAY_SECONDS = 120
+GOOGLE_CLOCK_SKEW_ERROR_MESSAGE = (
+    "Google sign-in could not be completed because this device clock appears out "
+    "of sync. Sync your system time and try again."
+)
 
 
 class OAuthNotConfiguredError(RuntimeError):
+    pass
+
+
+class GoogleIdTokenClockSkewError(RuntimeError):
     pass
 
 
@@ -63,13 +72,18 @@ def verify_google_id_token(id_token: str) -> dict[str, Any]:
     settings = _require_google_oauth_config()
     jwks_client = jwt.PyJWKClient(_GOOGLE_JWKS_URL)
     signing_key = jwks_client.get_signing_key_from_jwt(id_token)
-    claims = jwt.decode(
-        id_token,
-        signing_key.key,
-        algorithms=["RS256"],
-        audience=settings.google_client_id,
-        options={"require": ["sub", "iss"]},
-    )
+    try:
+        claims = jwt.decode(
+            id_token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=settings.google_client_id,
+            leeway=GOOGLE_ID_TOKEN_LEEWAY_SECONDS,
+            options={"require": ["sub", "iss"]},
+        )
+    except jwt.ImmatureSignatureError as exc:
+        raise GoogleIdTokenClockSkewError(GOOGLE_CLOCK_SKEW_ERROR_MESSAGE) from exc
+
     issuer = claims.get("iss")
     if issuer not in _GOOGLE_ISSUERS:
         raise jwt.InvalidIssuerError("Google token issuer is invalid.")
@@ -171,7 +185,7 @@ def _normalize_email(email: str | None) -> str | None:
 
 def _require_google_oauth_config():
     settings = get_settings()
-    if not settings.google_client_id or not settings.google_client_secret:
+    if not settings.google_oauth_is_configured():
         raise OAuthNotConfiguredError("Google OAuth is not configured.")
     return settings
 

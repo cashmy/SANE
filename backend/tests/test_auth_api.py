@@ -2,10 +2,12 @@ from sqlalchemy import func, select
 
 from app.core.config import get_settings
 from app.core.security import OAUTH_STATE_COOKIE_NAME, SESSION_COOKIE_NAME
+from app.models.auth_identity import AuthIdentity
 from app.models.email_account import EmailAccount
 from app.models.enums import EmailAccountProvider
 from app.models.ingestion_run import IngestionRun
 from app.models.user import User
+from app.services.auth_service import GoogleIdTokenClockSkewError
 from app.services.ownership import get_or_create_local_alpha_user
 
 
@@ -133,7 +135,15 @@ def test_logout_clears_the_current_session(auth_client) -> None:
     assert follow_up.status_code == 401
 
 
-def test_google_login_returns_501_when_not_configured(client) -> None:
+def test_google_login_returns_501_when_oauth_values_are_placeholders(
+    client, monkeypatch
+) -> None:
+    _set_auth_settings(
+        monkeypatch,
+        google_client_id="YOUR_GOOGLE_CLIENT_ID",
+        google_client_secret="YOUR_GOOGLE_CLIENT_SECRET",
+    )
+
     response = client.get("/api/auth/google/login", follow_redirects=False)
 
     assert response.status_code == 501
@@ -163,3 +173,40 @@ def test_google_callback_sets_session_cookie_and_redirects(client, monkeypatch) 
     assert response.status_code in {302, 307}
     assert response.headers["location"] == "http://localhost:5173"
     assert SESSION_COOKIE_NAME in response.headers.get("set-cookie", "")
+
+
+def test_google_callback_redirects_with_clock_skew_error_without_side_effects(
+    client,
+    db_session,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.auth.exchange_google_code",
+        lambda code: {"id_token": f"token-for-{code}"},
+    )
+
+    def raise_clock_skew(_token: str):
+        raise GoogleIdTokenClockSkewError(
+            "Google sign-in could not be completed because this device clock appears out of sync. Sync your system time and try again."
+        )
+
+    monkeypatch.setattr("app.routers.auth.verify_google_id_token", raise_clock_skew)
+
+    client.cookies.set(OAUTH_STATE_COOKIE_NAME, "signed-state")
+    response = client.get(
+        "/api/auth/google/callback?code=abc123&state=signed-state",
+        follow_redirects=False,
+    )
+
+    db_session.expire_all()
+
+    assert response.status_code in {302, 307}
+    assert (
+        response.headers["location"]
+        == "http://localhost:5173?auth_error=device_clock_out_of_sync"
+    )
+    assert SESSION_COOKIE_NAME not in response.headers.get("set-cookie", "")
+    assert db_session.scalar(select(func.count()).select_from(User)) == 0
+    assert db_session.scalar(select(func.count()).select_from(AuthIdentity)) == 0
+    assert db_session.scalar(select(func.count()).select_from(EmailAccount)) == 0
+    assert db_session.scalar(select(func.count()).select_from(IngestionRun)) == 0
