@@ -2,7 +2,7 @@
 
 ## Status
 
-Do not execute until Prompt 07e / A40-A42 is complete and validated.
+Prompt 07e / A40-A42 is complete and validated.
 
 This prompt assumes the database already has:
 
@@ -13,6 +13,15 @@ This prompt assumes the database already has:
 - `IngestionRun`
 - sources/candidates scoped to `EmailAccount`
 - PostgreSQL-backed runtime and tests
+
+Validation baseline before this prompt:
+
+```text
+backend: python -m pytest -> 21 passed
+frontend: npm run test:run -> 10 passed
+frontend: npm run build -> passed
+alembic head/current -> 0003_email_account_foundation
+```
 
 ## Role
 
@@ -49,6 +58,8 @@ Before proposing or implementing changes, inspect:
 - frontend API/types/tests
 - backend tests
 
+Also inspect the current `User` model carefully. If an `email` column still exists on `User`, treat it as legacy/local-display debt from an earlier foundation pass. Do not use `User.email` as the account-linking authority.
+
 ## Clarification Gate
 
 Before executing implementation:
@@ -66,6 +77,30 @@ Before executing implementation:
 11. You must have human approval before executing implementation.
 
 Do not treat post-hoc assumption reporting as a substitute for this gate.
+
+## Post-Auto Recovery Guardrails
+
+This prompt is being reissued after an Auto/unknown BASE attempt was stopped.
+
+The stopped attempt surfaced important risks:
+
+- a real credential-style encryption key was proposed for a shared config file
+- stale SQLite guidance was reintroduced after SQLite runtime deprecation
+- `User.email` was treated as an authoritative identity/linking field even though the intended model puts email authority in `UserEmail`
+
+Do not repeat these issues.
+
+Hard rules:
+
+- Do not write real secrets into tracked files, docs, prompts, examples, or README.
+- `.env.example` must use placeholders only.
+- Real generated values belong only in ignored local `.env` files.
+- PostgreSQL is the only supported runtime and DB-integrated test database.
+- Do not reintroduce SQLite runtime guidance or SQLite test fallback.
+- `UserEmail` is authoritative for user email addresses and verified-email account linking.
+- `AuthIdentity` is authoritative for provider sign-in identity.
+- `EmailAccount` is authoritative for connected mailbox identity.
+- If existing code still has `User.email`, do not build new account-linking behavior on it. If this creates a migration/model concern, stop and ask before implementation.
 
 ## Core Conceptual Separation
 
@@ -124,6 +159,9 @@ Account linking policy:
 - otherwise create a new `User`
 - record provider identity in `AuthIdentity`
 - record/maintain user email in `UserEmail`
+- do not use `User.email` for linking decisions
+
+If the current `User` table still requires `email` as a non-null unique field, stop and ask before implementing OAuth. Do not patch around that constraint by making tests less realistic. The preferred model direction is that `User` is a stable account owner and `UserEmail` owns email addresses.
 
 ## Gmail Connection Direction
 
@@ -154,12 +192,25 @@ Use `.env` configuration for:
 - Google OAuth client secret
 - OAuth redirect URI
 - allowed frontend origin if needed
+- JWT/session secret
+- credential encryption key
 
-Token storage should be safe for ALPHA and clearly documented.
+Committed/example config must use placeholders only.
 
-If full encryption-at-rest is not implemented in this pass, use a `credential_ref` / token metadata approach or clearly mark stored token handling as ALPHA-only and not production-safe.
+Credential direction:
 
-Do not pretend token storage is production secure if it is not.
+- Use simple symmetric encryption now for Gmail OAuth credential storage.
+- Use an environment value such as `SANE_CREDENTIAL_ENCRYPTION_KEY`.
+- Do not store plaintext refresh tokens.
+- Do not generate or commit a real encryption key.
+- Do not expose tokens or secrets to the frontend.
+- Document that ALPHA credential encryption uses a local environment key and production should use managed secret infrastructure.
+
+Session direction:
+
+- Use an HttpOnly, SameSite=Lax JWT cookie for ALPHA.
+- Do not add a server-side session table in this pass.
+- Document that ALPHA sign-out clears only the current browser session and does not revoke other issued JWTs.
 
 ## Gmail Scope Direction
 
@@ -181,8 +232,9 @@ Implement an explicit manual scan endpoint/action.
 
 Default bounds:
 
-- latest 50 messages unless SKY chooses another limit
-- optional category/label scope if feasible without overbuilding
+- default limit count = 50
+- expose bounded choices only: 50 / 100 / 200
+- default label/category scope = `CATEGORY_PROMOTIONS`
 - no full mailbox import
 - no full email body storage
 
@@ -230,11 +282,17 @@ Expected UI:
 - Connections view for Gmail connect/reconnect/disconnect
 - Connections view manual scan button
 - Connections view bounded scan settings/status
+- Connections view scan limit choices: 50 / 100 / 200, default 50
+- Connections view should make clear that Gmail connection is separate from app sign-in
 - Review view may show last scan summary compactly if helpful
 
 Do not turn Review into the OAuth setup surface.
 
 Do not add marketing/expository panels.
+
+Real signed-in users should not see Local ALPHA demo data. Local ALPHA data remains scoped to the Local ALPHA User / Local ALPHA Mailbox only.
+
+Even if the user signs in with Google, always present Gmail connection as a separate authorization flow. Do not assume Google sign-in means Gmail is connected or that SANE may access Gmail.
 
 ## Testing
 
@@ -253,6 +311,7 @@ Backend test expectations:
 
 - app load/startup does not scan Gmail
 - sign-in creates/links User, UserEmail, and AuthIdentity correctly
+- sign-in linking uses verified `UserEmail`, not `User.email`
 - Gmail connect creates/updates EmailAccount
 - disconnect blocks scan but preserves local data
 - manual scan requires authenticated user and connected Gmail EmailAccount
@@ -260,6 +319,8 @@ Backend test expectations:
 - manual scan records IngestionRun
 - manual scan creates/updates source review units under EmailAccount
 - no external unsubscribe/archive/delete action executes
+- no real secrets are required in tracked files
+- tests use test-local secrets/keys only through fixtures or environment monkeypatching
 
 Frontend test expectations:
 
@@ -268,6 +329,13 @@ Frontend test expectations:
 - Connections view shows Gmail connection status
 - manual scan only triggers from explicit user action
 - app open/render does not trigger scan
+
+Environment/test expectations:
+
+- Backend tests remain PostgreSQL-backed through `SANE_TEST_DATABASE_URL`.
+- Automated tests must not use SQLite.
+- Automated tests must not call real Google/Gmail network endpoints.
+- Test credential encryption keys must be generated or injected inside test setup, not committed to tracked files.
 
 ## Out Of Scope
 
@@ -321,4 +389,3 @@ Report:
 - validation results
 - mocked vs live-tested behavior
 - remaining security/privacy risks
-
