@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 
-import { createDecision, listDecisions } from "../../services/api";
+import {
+  createDecision,
+  listDecisions,
+  listEmailAccounts,
+  listIngestionRuns,
+} from "../../services/api";
+import type { IngestionRunSummary } from "../../types/auth";
 import {
   decisionActionLabels,
   decisionHistoryLabels,
@@ -22,8 +28,22 @@ const toErrorMessage = (error: unknown) => {
   return "Decision history could not be loaded.";
 };
 
-export function DecisionsView() {
+interface DecisionsViewProps {
+  isLocalAlpha: boolean;
+  onOpenConnections: () => void;
+  onOpenReview: () => void;
+}
+
+export function DecisionsView({
+  isLocalAlpha,
+  onOpenConnections,
+  onOpenReview,
+}: DecisionsViewProps) {
   const [decisions, setDecisions] = useState<DecisionRecord[]>([]);
+  const [runsByAccount, setRunsByAccount] = useState<
+    Record<number, IngestionRunSummary[]>
+  >({});
+  const [connectedAccountCount, setConnectedAccountCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -51,9 +71,24 @@ export function DecisionsView() {
       setIsLoading(true);
       setErrorMessage(null);
       try {
-        const response = await listDecisions();
+        const [response, accounts] = await Promise.all([
+          listDecisions(),
+          listEmailAccounts(),
+        ]);
+        const runEntries = await Promise.all(
+          accounts.map(async (account) => {
+            const runs = await listIngestionRuns(account.id);
+            return [account.id, runs] as const;
+          }),
+        );
         if (cancelled) return;
         setDecisions(response.items);
+        setRunsByAccount(Object.fromEntries(runEntries));
+        setConnectedAccountCount(
+          accounts.filter(
+            (account) => account.connection_status === "connected",
+          ).length,
+        );
       } catch (error) {
         if (!cancelled) {
           setErrorMessage(toErrorMessage(error));
@@ -99,6 +134,51 @@ export function DecisionsView() {
   const revisionCount = decisions.filter(
     (decision) => decision.is_revision,
   ).length;
+  const allRuns = Object.values(runsByAccount).flat();
+  const hasCompletedRunWithSources = allRuns.some(
+    (run) => run.status === "completed" && run.source_count_created > 0,
+  );
+  const hasCompletedRunWithoutSources = allRuns.some(
+    (run) => run.status === "completed" && run.source_count_created === 0,
+  );
+  const emptyState =
+    !errorMessage && !isLoading && decisions.length === 0
+      ? isLocalAlpha
+        ? {
+            title: "No local decisions recorded yet",
+            body: "Use Review to record your first local decision against the demo sources.",
+            actionLabel: "Go to Review",
+            action: onOpenReview,
+          }
+        : connectedAccountCount === 0
+          ? {
+              title: "No decisions recorded yet",
+              body: "Connect Gmail in Connections, then run a bounded manual scan before you start reviewing sources.",
+              actionLabel: "Go to Connections",
+              action: onOpenConnections,
+            }
+          : allRuns.length === 0
+            ? {
+                title: "Run a scan before decisions begin",
+                body: "Gmail is connected, but no bounded scan has run yet. Use Connections to start the first manual scan.",
+                actionLabel: "Go to Connections",
+                action: onOpenConnections,
+              }
+            : hasCompletedRunWithoutSources && !hasCompletedRunWithSources
+              ? {
+                  title:
+                    "No decisions yet because no review sources were created",
+                  body: "The last bounded scan completed without creating review sources. Check Connections before the next scan.",
+                  actionLabel: "Go to Connections",
+                  action: onOpenConnections,
+                }
+              : {
+                  title: "No decisions recorded yet",
+                  body: "Review sources after your next bounded scan to start recording local decisions.",
+                  actionLabel: "Go to Review",
+                  action: onOpenReview,
+                }
+      : null;
 
   return (
     <div className="decisions-view">
@@ -136,6 +216,24 @@ export function DecisionsView() {
         <p className="status-msg" role="status">
           Loading decision history…
         </p>
+      ) : emptyState ? (
+        <section
+          className="placeholder-card guided-empty-state"
+          aria-label="Decision history empty state"
+        >
+          <span className="chip chip--neutral">Local-only ALPHA</span>
+          <h2>{emptyState.title}</h2>
+          <p>{emptyState.body}</p>
+          <div className="guided-empty-state__actions">
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={emptyState.action}
+            >
+              {emptyState.actionLabel}
+            </button>
+          </div>
+        </section>
       ) : (
         <div className="table-container">
           <table className="source-table" aria-label="Source decision history">
@@ -151,91 +249,79 @@ export function DecisionsView() {
               </tr>
             </thead>
             <tbody>
-              {decisions.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="empty-row">
-                    No decisions recorded yet.
+              {decisions.map((d) => (
+                <tr
+                  key={d.id}
+                  className={`source-row decision-row${d.is_current ? " decision-row--current" : " decision-row--historic"}`}
+                >
+                  <td className="col-source">
+                    <span className="source-name">{d.source.source_name}</span>
+                    <span className="source-email">
+                      {d.source.sender_emails.join(", ")}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="source-subject">
+                      {d.source.representative_subject}
+                    </span>
+                    <span className="source-reason">
+                      {d.source.mailbox_category}
+                    </span>
+                  </td>
+                  <td>
+                    <span
+                      className={`chip chip--decision chip--${d.decision.replace(/_/g, "-")}`}
+                    >
+                      {decisionHistoryLabels[d.decision]}
+                    </span>
+                  </td>
+                  <td>
+                    <div className="history-flags">
+                      <span
+                        className={`chip ${d.is_current ? "chip--current" : "chip--superseded"}`}
+                      >
+                        {d.is_current ? "Current" : "Superseded"}
+                      </span>
+                      {d.is_revision && (
+                        <span className="chip chip--revision">Revision</span>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    <span className="chip chip--neutral">Not executed</span>
+                  </td>
+                  <td className="col-time">{formatTimestamp(d.created_at)}</td>
+                  <td className="col-actions">
+                    {d.is_current ? (
+                      <div className="row-actions row-actions--inline">
+                        {(
+                          Object.entries(decisionActionLabels) as [
+                            DecisionValue,
+                            string,
+                          ][]
+                        ).map(([decision, label]) => (
+                          <button
+                            className={`btn-action btn-action--${decision.replace(/_/g, "-")}`}
+                            key={decision}
+                            type="button"
+                            disabled={
+                              submittingSourceId === d.source.id ||
+                              decision === d.decision
+                            }
+                            onClick={() => {
+                              void handleRevision(d.source.id, decision);
+                            }}
+                          >
+                            {submittingSourceId === d.source.id ? "…" : label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="source-reason">Revision recorded</span>
+                    )}
                   </td>
                 </tr>
-              ) : (
-                decisions.map((d) => (
-                  <tr
-                    key={d.id}
-                    className={`source-row decision-row${d.is_current ? " decision-row--current" : " decision-row--historic"}`}
-                  >
-                    <td className="col-source">
-                      <span className="source-name">
-                        {d.source.source_name}
-                      </span>
-                      <span className="source-email">
-                        {d.source.sender_emails.join(", ")}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="source-subject">
-                        {d.source.representative_subject}
-                      </span>
-                      <span className="source-reason">
-                        {d.source.mailbox_category}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className={`chip chip--decision chip--${d.decision.replace(/_/g, "-")}`}
-                      >
-                        {decisionHistoryLabels[d.decision]}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="history-flags">
-                        <span
-                          className={`chip ${d.is_current ? "chip--current" : "chip--superseded"}`}
-                        >
-                          {d.is_current ? "Current" : "Superseded"}
-                        </span>
-                        {d.is_revision && (
-                          <span className="chip chip--revision">Revision</span>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <span className="chip chip--neutral">Not executed</span>
-                    </td>
-                    <td className="col-time">
-                      {formatTimestamp(d.created_at)}
-                    </td>
-                    <td className="col-actions">
-                      {d.is_current ? (
-                        <div className="row-actions row-actions--inline">
-                          {(
-                            Object.entries(decisionActionLabels) as [
-                              DecisionValue,
-                              string,
-                            ][]
-                          ).map(([decision, label]) => (
-                            <button
-                              className={`btn-action btn-action--${decision.replace(/_/g, "-")}`}
-                              key={decision}
-                              type="button"
-                              disabled={
-                                submittingSourceId === d.source.id ||
-                                decision === d.decision
-                              }
-                              onClick={() => {
-                                void handleRevision(d.source.id, decision);
-                              }}
-                            >
-                              {submittingSourceId === d.source.id ? "…" : label}
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="source-reason">Revision recorded</span>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
         </div>

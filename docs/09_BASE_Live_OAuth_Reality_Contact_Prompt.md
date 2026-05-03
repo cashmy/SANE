@@ -2,9 +2,18 @@
 
 ## Status
 
-Draft prompt. Do not execute until Prompt 08 is complete, reviewed, and validated.
+Ready for execution after Prompt 08 / 08b / 08c / 08d have been reviewed and validated.
 
 Prompt 09 is a reality-contact pass, not a broad feature expansion pass.
+
+Current validation baseline before Prompt 09:
+
+```text
+backend: python -m pytest -> 51 passed
+frontend: npm run test:run -> 20 passed
+frontend: npm run build -> passed
+alembic head/current -> 0006_gmail_credential_storage
+```
 
 ## Role
 
@@ -21,7 +30,7 @@ Active task:
 - validate real Google sign-in
 - validate real Gmail mailbox connection
 - validate one bounded manual Gmail scan
-- preserve all Prompt 08 governance boundaries
+- preserve all Prompt 08 / 08b / 08c / 08d governance boundaries
 
 Do not treat the full issue register as the active contract. The full register is CORE/SKY governance memory.
 
@@ -32,6 +41,9 @@ Before proposing or implementing changes, inspect:
 - `docs/RBA_HOMSP_BASE_Primer.md`
 - `docs/Stage1_ALPHA_Review_Issue_Register.md`, especially A32/A33/A40/A41/A42 and Prompt 08 notes
 - `docs/08_BASE_Auth_Gmail_Manual_Ingestion_Prompt.md`
+- `docs/08b_BASE_Local_Dev_Auth_Bypass_Prompt.md`
+- `docs/08c_BASE_Auth_Status_UI_Polish_Prompt.md`
+- `docs/08d_BASE_Authenticated_Empty_State_UX_Prompt.md`
 - backend auth and Gmail routers/services
 - backend config and `.env.example`
 - Alembic migrations
@@ -43,7 +55,7 @@ Before proposing or implementing changes, inspect:
 
 Before executing implementation:
 
-1. Confirm Prompt 08 is complete and validated.
+1. Confirm Prompt 08, 08b, 08c, and 08d are complete and validated.
 2. State what is currently mocked and what can be live-tested.
 3. State exactly what Google Cloud OAuth setup SKY must perform manually.
 4. State the required redirect URIs.
@@ -52,8 +64,9 @@ Before executing implementation:
 7. State the live validation path for Gmail connection.
 8. State the live validation path for one bounded manual scan.
 9. State how you will prevent scan-on-app-open or scan-on-sign-in.
-10. Ask clarifying questions if live OAuth setup, redirect paths, credential handling, or scan scope is ambiguous.
-11. You must have human approval before implementation.
+10. State whether `SANE_AUTH_MODE` must be switched from `local_dev` to `google_oauth` for live validation.
+11. Ask clarifying questions if live OAuth setup, redirect paths, credential handling, auth mode, or scan scope is ambiguous.
+12. You must have human approval before implementation or live testing.
 
 Do not treat post-hoc assumption reporting as a substitute for this gate.
 
@@ -70,6 +83,8 @@ This pass should prove that SANE can:
 - run one explicit manual Gmail scan
 - create/update source review rows from live Gmail metadata
 - record an `IngestionRun`
+
+Prompt 09 should not replace the local-dev UI review path. Local-dev auth remains useful for UI/workflow inspection when Google OAuth is not configured.
 
 ## Hard Governance Rules
 
@@ -90,6 +105,8 @@ Do not store full email bodies.
 
 Do not write real secrets into tracked files.
 
+Do not remove or weaken local-dev auth, but do not use it as proof that live OAuth works.
+
 ## Manual Setup Documentation
 
 Update project docs only as needed to guide the human through setup.
@@ -103,6 +120,7 @@ Document:
 - how to generate a local credential encryption key
 - how to run backend/frontend for live testing
 - what live validation steps should be performed
+- when to use `SANE_AUTH_MODE=local_dev` vs `SANE_AUTH_MODE=google_oauth`
 
 Use placeholders only.
 
@@ -115,6 +133,15 @@ Never commit real:
 - access token
 
 ## Live Validation Target
+
+For live Google/Gmail validation, local `.env` should use:
+
+```text
+SANE_AUTH_MODE=google_oauth
+SANE_DEBUG=true
+```
+
+`SANE_AUTH_MODE=local_dev` is for UI/workflow review only and does not validate Google OAuth or Gmail access.
 
 Minimum live validation path:
 
@@ -131,6 +158,12 @@ Minimum live validation path:
 10. Confirm IngestionRun completed or failed with clear status.
 11. Confirm Review shows source rows created from the connected Gmail account.
 ```
+
+Expected first-run visual checks:
+
+- If sign-in succeeds before Gmail connect, Review should show the authenticated empty state from A46.
+- If Gmail connects before scan, Review should show the connected/no-scan empty state.
+- After scan, Review should show source rows or the scan-complete/no-sources empty state.
 
 If live validation cannot be completed in the current environment, report exactly why and leave clear manual steps.
 
@@ -159,6 +192,8 @@ Frontend tests should still prove:
 - Connections view is the Gmail control center
 - scan occurs only from explicit user action
 
+Prompt 09 is allowed to make small bug fixes discovered during live validation, but it must not broaden scope. If live validation exposes an architectural issue, stop and report before implementing a broad repair.
+
 ## Out Of Scope
 
 Do not implement:
@@ -173,6 +208,8 @@ Do not implement:
 - Microsoft/IMAP integration
 - multi-account management UI beyond what Prompt 08 already supports
 - full email body storage
+- local-dev auth redesign
+- broad first-run UI redesign beyond small live-validation fixes
 
 ## Validation
 
@@ -212,4 +249,3 @@ Report:
 - validation results
 - any OAuth/Gmail errors encountered
 - remaining risks before Prompt 10
-

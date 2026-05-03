@@ -5,6 +5,15 @@ export interface UserMe {
   is_local_alpha: boolean;
 }
 
+export type AuthMode = "google_oauth" | "local_dev";
+
+export interface AuthConfig {
+  auth_mode: AuthMode;
+  local_dev_enabled: boolean;
+  google_oauth_enabled: boolean;
+  google_oauth_message: string | null;
+}
+
 export type ConnectionStatus =
   | "connected"
   | "disconnected"

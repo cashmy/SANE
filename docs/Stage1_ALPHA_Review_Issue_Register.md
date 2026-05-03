@@ -12,11 +12,11 @@ The fuller RBA/process version lives in the SANE-RBA artifact set.
 
 ## Current Validation
 
-Latest BASE validation after Prompt 08:
+Latest BASE validation after Prompt 08d:
 
 ```text
-backend: python -m pytest -> 46 passed
-frontend: npm run test:run -> 13 passed
+backend: python -m pytest -> 51 passed
+frontend: npm run test:run -> 20 passed
 frontend: npm run build -> passed
 alembic head/current -> 0006_gmail_credential_storage
 ```
@@ -35,6 +35,9 @@ Validation note:
 - Backend now has a future-ready account/auth/mailbox foundation: UserEmail, AuthIdentity, EmailAccount, and IngestionRun.
 - Source identity is now scoped to EmailAccount through `unique(email_account_id, source_key)`.
 - Google app authentication, separate Gmail authorization, encrypted Gmail credential storage, and manual bounded Gmail ingestion are implemented with mocked automated tests.
+- A development-only Local ALPHA auth bypass now restores local UI/workflow review without weakening production auth.
+- Auth/runtime status and display mode controls are now visually separated, and the persistent sidebar auth block is quieter for local-dev review.
+- Authenticated first-run Review and Decisions states now guide signed-in users toward Connections and explicit manual scans without triggering scan-on-render.
 - Frontend supports source review, source counts, decision controls, batch selection, history, loading state, and error state.
 - Frontend now gates the app on authentication and uses Connections as the Gmail connect/disconnect/manual-scan control center.
 - External email actions are explicitly not executed.
@@ -92,8 +95,9 @@ Validation note:
 | A43 | Live Validation | Auth/Gmail | Prompt 08 auth/Gmail behavior is mocked and unit/integration tested, but live Google sign-in, Gmail consent, redirect wiring, and real Gmail API behavior still need manual reality contact. | Open |
 | A44 | Security Hardening | Auth/Security | ALPHA sessions use stateless JWT cookies; sign-out clears only the current browser cookie and does not revoke other issued sessions. | Deferred |
 | A45 | Security Hardening | Credential Storage | Gmail credentials are Fernet-encrypted with a local environment key. Production needs managed secret infrastructure and stronger operational key handling. | Deferred |
-| A46 | UX Polish | Frontend/Auth/Workflow | Authenticated real users with no connected mailbox/source data need a clear empty-state polish pass in Review and Decisions. | Open |
-| A47 | Dev UX / Auth Governance | Frontend/Backend Auth | Add a development-only Local ALPHA auth bypass so UI/workflow review can continue when Google OAuth is not configured. Must be disabled in production and must not imply Gmail connection or trigger ingestion. | Open |
+| A46 | UX Polish | Frontend/Auth/Workflow | Authenticated real users with no connected mailbox/source data need a clear empty-state polish pass in Review and Decisions. | Implemented for ALPHA |
+| A47 | Dev UX / Auth Governance | Frontend/Backend Auth | Add a development-only Local ALPHA auth bypass so UI/workflow review can continue when Google OAuth is not configured. Must be disabled in production and must not imply Gmail connection or trigger ingestion. | Implemented for ALPHA |
+| A48 | UX Polish | Frontend/Auth/Navigation | Auth/runtime status and display mode controls are visually conflated in the top nav, and Local ALPHA status is over-informative/duplicated in the sidebar footer. Separate controls and simplify persistent identity/status display. | Implemented for ALPHA |
 
 ---
 
@@ -1322,14 +1326,21 @@ Observation:
 
 Prompt 08 correctly hides Local ALPHA demo data from real signed-in users. This may leave real users with empty Review/Decisions views until Gmail is connected and scanned.
 
-Future action:
-
-Add clear empty states for:
+Implemented empty states for:
 
 - signed in but no Gmail connected
 - Gmail connected but no scan run
 - scan completed with no sources found
 - decisions empty because no source decisions exist yet
+
+Status:
+
+Implemented for ALPHA by Prompt 08d.
+
+Validation:
+
+- frontend tests prove authenticated users with no Gmail account see Review guidance that points to Connections, connected/no-scan state is explained, scan-complete/no-sources state is explained, Decisions empty state is clear, and these empty states do not trigger Gmail scan on render.
+- local-dev review flow remains intact alongside the new authenticated first-run messaging.
 
 ### A47 - Development-Only Local Auth Bypass
 
@@ -1374,7 +1385,59 @@ Production guardrail:
 
 Status:
 
-Open; create Prompt 08b.
+Implemented for ALPHA by Prompt 08b.
+
+Validation:
+
+- backend local-dev auth tests prove the endpoint issues a normal session cookie when enabled, is blocked when disabled, is blocked when `SANE_DEBUG=false`, reuses the Local ALPHA user, and does not create Gmail credentials or ingestion runs.
+- frontend tests prove the bypass button appears only when advertised by backend auth config, local-dev sign-in authenticates the existing app shell, and missing Google OAuth is shown as an in-app error instead of raw JSON.
+
+### A48 - Auth / Status UI Polish
+
+Decision:
+
+Add a narrow frontend polish pass.
+
+Observation:
+
+After enabling local-dev auth, UI review found that the top nav visually embeds `Local only` and `Dark mode` into the same pill/card-like element.
+
+This conflates two different concepts:
+
+```text
+Local only = auth/runtime status
+Dark mode = display preference
+```
+
+The sidebar footer also shows a large amount of persistent local identity/status information:
+
+- Stage 1 ALPHA
+- Local ALPHA User
+- local-alpha@sane.local
+- Local dev auth
+- Sign out
+
+This may be over-informative for a persistent navigation area.
+
+Preferred direction:
+
+- separate auth/runtime status from theme/display controls
+- make `Dark mode` read as a standalone toggle/control
+- keep local auth visible but quieter
+- simplify sidebar footer identity/status display
+- avoid duplicating the same status in multiple places unless it serves a clear purpose
+
+Status:
+
+Implemented for ALPHA by Prompt 08c.
+
+Validation:
+
+- frontend shell tests prove the local-dev authenticated shell still renders, sign-out remains available, the theme toggle remains standalone, auth/runtime status no longer depends on the toolbar theme control, and Connections still does not trigger Gmail scan on render.
+
+Scope note:
+
+- Prompt 08c cleaned up auth/status/navigation presentation, and Prompt 08d completed the first authenticated empty-state polish without backend/API changes.
 
 ---
 

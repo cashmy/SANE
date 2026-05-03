@@ -12,7 +12,9 @@ import type { EmailAccountInfo, IngestionRunSummary } from "../types/auth";
 export const apiConfig = {
   baseUrl: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000",
   healthPath: "/api/health",
+  authConfigPath: "/api/auth/config",
   authMePath: "/api/auth/me",
+  authLocalDevLoginPath: "/api/auth/local-dev/login",
   authLogoutPath: "/api/auth/logout",
   authGoogleLoginPath: "/api/auth/google/login",
   sourcesPath: "/api/sources",

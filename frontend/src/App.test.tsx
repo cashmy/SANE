@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import type {
+  AuthConfig,
   EmailAccountInfo,
   IngestionRunSummary,
   UserMe,
@@ -21,6 +22,20 @@ const localAlphaUser: UserMe = {
   email: "local-alpha@sane.local",
   display_name: "Local ALPHA User",
   is_local_alpha: true,
+};
+
+const signedInUser: UserMe = {
+  id: 2,
+  email: "person@example.com",
+  display_name: "Person Example",
+  is_local_alpha: false,
+};
+
+const defaultAuthConfig: AuthConfig = {
+  auth_mode: "google_oauth",
+  local_dev_enabled: false,
+  google_oauth_enabled: true,
+  google_oauth_message: null,
 };
 
 const seededSources: SourceRow[] = [
@@ -208,13 +223,20 @@ const stateForDecision = (
 const createMockBackend = (options?: {
   failSources?: boolean;
   unauthenticated?: boolean;
+  currentUser?: UserMe | null;
+  authConfig?: AuthConfig;
+  sources?: SourceRow[];
   gmailAccounts?: EmailAccountInfo[];
   gmailRunsByAccount?: Record<number, IngestionRunSummary[]>;
 }) => {
   const state = {
+    authConfig: options?.authConfig ?? defaultAuthConfig,
+    currentUser:
+      options?.currentUser ??
+      (options?.unauthenticated ? null : localAlphaUser),
     accounts: options?.gmailAccounts ?? [],
     runsByAccount: options?.gmailRunsByAccount ?? {},
-    sources: seededSources.map(cloneSource),
+    sources: (options?.sources ?? seededSources).map(cloneSource),
     decisions: [] as DecisionRecord[],
     nextDecisionId: 50,
     nextRunId: 1,
@@ -280,18 +302,35 @@ const createMockBackend = (options?: {
     const url = new URL(String(input));
     const method = init?.method ?? "GET";
 
+    if (url.pathname === "/api/auth/config" && method === "GET") {
+      return jsonResponse(state.authConfig);
+    }
+
     if (url.pathname === "/api/auth/me" && method === "GET") {
-      if (options?.unauthenticated) {
+      if (!state.currentUser) {
         return jsonResponse(
           { detail: "Authentication required." },
           { status: 401 },
         );
       }
 
+      return jsonResponse(state.currentUser);
+    }
+
+    if (url.pathname === "/api/auth/local-dev/login" && method === "POST") {
+      if (!state.authConfig.local_dev_enabled) {
+        return jsonResponse(
+          { detail: "Local development auth is not enabled." },
+          { status: 404 },
+        );
+      }
+
+      state.currentUser = localAlphaUser;
       return jsonResponse(localAlphaUser);
     }
 
     if (url.pathname === "/api/auth/logout" && method === "POST") {
+      state.currentUser = null;
       return new Response(null, { status: 204 });
     }
 
@@ -548,7 +587,17 @@ describe("App", () => {
     expect(
       within(nav).getByRole("button", { name: /settings/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/local alpha user/i)).toBeInTheDocument();
+    const accountMenu = screen.getByLabelText(/signed-in user account/i);
+    expect(
+      within(accountMenu).getByText(/local alpha user/i),
+    ).toBeInTheDocument();
+    expect(within(accountMenu).getByText(/^local dev$/i)).toBeInTheDocument();
+    expect(
+      within(accountMenu).getByRole("button", { name: /sign out/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(accountMenu).queryByText(/local-alpha@sane\.local/i),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /switch to dark mode/i }),
     ).toBeInTheDocument();
@@ -572,6 +621,107 @@ describe("App", () => {
     expect(
       within(table).getAllByText(/mark as low value/i).length,
     ).toBeGreaterThan(0);
+  });
+
+  it("authenticated users with no Gmail connection see a Review empty state that points to Connections", async () => {
+    vi.mocked(fetch).mockImplementation(
+      createMockBackend({
+        currentUser: signedInUser,
+        sources: [],
+      }),
+    );
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: /connect gmail to build your review queue/i,
+      }),
+    ).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /go to connections/i }),
+    );
+
+    expect(
+      screen.getByRole("main", { name: /connections/i }),
+    ).toBeInTheDocument();
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(([input]) =>
+          String(input).includes("/api/gmail/scan"),
+        ),
+    ).toBe(false);
+  });
+
+  it("Review shows a connected-but-not-scanned empty state", async () => {
+    vi.mocked(fetch).mockImplementation(
+      createMockBackend({
+        currentUser: signedInUser,
+        sources: [],
+        gmailAccounts: [
+          {
+            id: 42,
+            provider: "gmail",
+            account_email: "person@gmail.com",
+            display_name: "person@gmail.com",
+            connection_status: "connected",
+            granted_scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+          },
+        ],
+      }),
+    );
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: /run a bounded scan to populate review/i,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("Review shows a no-sources-found state after a completed scan", async () => {
+    vi.mocked(fetch).mockImplementation(
+      createMockBackend({
+        currentUser: signedInUser,
+        sources: [],
+        gmailAccounts: [
+          {
+            id: 42,
+            provider: "gmail",
+            account_email: "person@gmail.com",
+            display_name: "person@gmail.com",
+            connection_status: "connected",
+            granted_scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+          },
+        ],
+        gmailRunsByAccount: {
+          42: [
+            {
+              id: 1,
+              status: "completed",
+              scope: "CATEGORY_PROMOTIONS",
+              limit_count: 50,
+              message_count_scanned: 50,
+              source_count_created: 0,
+              error_summary: null,
+              started_at: "2026-05-02T17:00:00.000Z",
+              completed_at: "2026-05-02T17:01:00.000Z",
+            },
+          ],
+        },
+      }),
+    );
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: /last scan completed with no review sources/i,
+      }),
+    ).toBeInTheDocument();
   });
 
   it("pagination and page size controls change the displayed sources", async () => {
@@ -694,6 +844,30 @@ describe("App", () => {
     ).toBeGreaterThan(1);
   });
 
+  it("Decisions shows a clear authenticated empty state before Gmail is connected", async () => {
+    vi.mocked(fetch).mockImplementation(
+      createMockBackend({
+        currentUser: signedInUser,
+        sources: [],
+      }),
+    );
+
+    render(<App />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /decisions/i }),
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: /no decisions recorded yet/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/connect gmail in connections/i),
+    ).toBeInTheDocument();
+  });
+
   it("shows an error state when the source API fails", async () => {
     vi.mocked(fetch).mockImplementation(
       createMockBackend({ failSources: true }),
@@ -713,8 +887,14 @@ describe("App", () => {
 
     await screen.findByRole("table", { name: /source review queue/i });
 
+    const accountMenu = screen.getByLabelText(/signed-in user account/i);
     const toggle = screen.getByRole("button", { name: /switch to dark mode/i });
     expect(toggle).toBeInTheDocument();
+    expect(
+      within(accountMenu).queryByRole("button", {
+        name: /switch to dark mode/i,
+      }),
+    ).not.toBeInTheDocument();
 
     await userEvent.click(toggle);
 
@@ -735,8 +915,95 @@ describe("App", () => {
       await screen.findByRole("button", { name: /sign in with google/i }),
     ).toBeInTheDocument();
     expect(
+      screen.queryByRole("button", { name: /continue as local alpha user/i }),
+    ).not.toBeInTheDocument();
+    expect(
       screen.queryByRole("table", { name: /source review queue/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows the local dev sign-in button only when auth config enables it", async () => {
+    vi.mocked(fetch).mockImplementation(
+      createMockBackend({
+        unauthenticated: true,
+        authConfig: {
+          auth_mode: "local_dev",
+          local_dev_enabled: true,
+          google_oauth_enabled: false,
+          google_oauth_message:
+            "Google OAuth is not configured for this local environment.",
+        },
+      }),
+    );
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("button", {
+        name: /continue as local alpha user/i,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("clicking local dev sign-in authenticates the app", async () => {
+    vi.mocked(fetch).mockImplementation(
+      createMockBackend({
+        unauthenticated: true,
+        authConfig: {
+          auth_mode: "local_dev",
+          local_dev_enabled: true,
+          google_oauth_enabled: false,
+          google_oauth_message:
+            "Google OAuth is not configured for this local environment.",
+        },
+      }),
+    );
+
+    render(<App />);
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: /continue as local alpha user/i,
+      }),
+    );
+
+    expect(
+      await screen.findByRole("table", { name: /source review queue/i }),
+    ).toBeInTheDocument();
+    const accountMenu = screen.getByLabelText(/signed-in user account/i);
+    expect(within(accountMenu).getByText(/^local dev$/i)).toBeInTheDocument();
+    expect(
+      within(accountMenu).getByRole("button", { name: /sign out/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /switch to dark mode/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/local only/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a friendly in-app error when google oauth is not configured", async () => {
+    vi.mocked(fetch).mockImplementation(
+      createMockBackend({
+        unauthenticated: true,
+        authConfig: {
+          auth_mode: "google_oauth",
+          local_dev_enabled: false,
+          google_oauth_enabled: false,
+          google_oauth_message:
+            "Google OAuth is not configured for this local environment.",
+        },
+      }),
+    );
+
+    render(<App />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /sign in with google/i }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /google oauth is not configured for this local environment/i,
+    );
   });
 
   it("Connections view shows Gmail status and does not scan on render", async () => {

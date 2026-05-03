@@ -15,13 +15,13 @@ export function AccountMenu({
     <div className="account-menu" aria-label="Signed-in user account">
       <div className="account-menu__identity">
         <span className="account-menu__name">{user.display_name}</span>
-        <span className="account-menu__email">
-          {user.email ?? "No email on file"}
-        </span>
+        {!user.is_local_alpha && user.email ? (
+          <span className="account-menu__email">{user.email}</span>
+        ) : null}
       </div>
       <div className="account-menu__actions">
         {user.is_local_alpha ? (
-          <span className="chip chip--neutral">Local ALPHA</span>
+          <span className="chip chip--neutral">Local dev</span>
         ) : null}
         <button
           className="btn-secondary"

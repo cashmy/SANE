@@ -1,5 +1,40 @@
 import { ApiError, apiConfig } from "./api";
-import type { UserMe } from "../types/auth";
+import type { AuthConfig, UserMe } from "../types/auth";
+
+const getErrorMessage = async (response: Response) => {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    const payload = (await response.json()) as { detail?: string };
+    if (payload.detail) {
+      return payload.detail;
+    }
+  }
+
+  return `Request failed with status ${response.status}`;
+};
+
+const requestAuth = async <T>(path: string, init?: RequestInit): Promise<T> => {
+  const response = await fetch(`${apiConfig.baseUrl}${path}`, {
+    ...init,
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    throw new ApiError(response.status, await getErrorMessage(response));
+  }
+
+  return (await response.json()) as T;
+};
+
+export const fetchAuthConfig = () =>
+  requestAuth<AuthConfig>(apiConfig.authConfigPath, {
+    method: "GET",
+  });
 
 export const fetchMe = async (): Promise<UserMe | null> => {
   try {
@@ -40,6 +75,11 @@ export const signOut = async () => {
     credentials: "include",
   });
 };
+
+export const signInAsLocalAlpha = () =>
+  requestAuth<UserMe>(apiConfig.authLocalDevLoginPath, {
+    method: "POST",
+  });
 
 export const startGoogleSignIn = () => {
   window.location.assign(

@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,6 +16,7 @@ class Settings(BaseSettings):
 
     app_name: str = "SANE API"
     debug: bool = True
+    auth_mode: Literal["google_oauth", "local_dev"] = "google_oauth"
     api_prefix: str = "/api"
     database_url: str
     test_database_url: str | None = None

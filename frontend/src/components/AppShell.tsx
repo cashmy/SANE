@@ -61,7 +61,13 @@ export function AppShell() {
   }
 
   if (user === null) {
-    return <SignInScreen />;
+    return (
+      <SignInScreen
+        onAuthenticated={(signedInUser) => {
+          setUser(signedInUser);
+        }}
+      />
+    );
   }
 
   const handleSignOut = async () => {
@@ -95,7 +101,6 @@ export function AppShell() {
           ))}
         </ul>
         <div className="sidebar-footer">
-          <span className="alpha-tag">Stage 1 ALPHA</span>
           <AccountMenu
             user={user}
             isSigningOut={isSigningOut}
@@ -111,15 +116,29 @@ export function AppShell() {
             <h1 className="toolbar-title">{viewTitles[activeView]}</h1>
           </div>
           <div className="toolbar-meta">
-            <span className="toolbar-pill">
-              {user.is_local_alpha ? "Local only" : "Authenticated"}
-            </span>
             <ThemeToggle />
           </div>
         </header>
         <main className="content-area" aria-label={viewTitles[activeView]}>
-          {activeView === "review" && <ReviewView />}
-          {activeView === "decisions" && <DecisionsView />}
+          {activeView === "review" && (
+            <ReviewView
+              isLocalAlpha={user.is_local_alpha}
+              onOpenConnections={() => {
+                setActiveView("connections");
+              }}
+            />
+          )}
+          {activeView === "decisions" && (
+            <DecisionsView
+              isLocalAlpha={user.is_local_alpha}
+              onOpenConnections={() => {
+                setActiveView("connections");
+              }}
+              onOpenReview={() => {
+                setActiveView("review");
+              }}
+            />
+          )}
           {activeView === "connections" && <ConnectionsView />}
           {activeView === "settings" && <SettingsView />}
         </main>

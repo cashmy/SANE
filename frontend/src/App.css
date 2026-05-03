@@ -114,7 +114,7 @@ body {
   padding: 1rem 1.25rem;
   border-top: 1px solid var(--color-sidebar-border);
   display: grid;
-  gap: 0.45rem;
+  gap: 0.65rem;
   align-content: start;
   background: linear-gradient(
     180deg,
@@ -203,11 +203,7 @@ body {
 .toolbar-meta {
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.2rem 0.25rem 0.2rem 0.65rem;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-surface-muted);
+  justify-content: flex-end;
 }
 
 .toolbar-pill {
@@ -963,6 +959,20 @@ body {
   line-height: 1.6;
 }
 
+.guided-empty-state {
+  max-width: 540px;
+}
+
+.guided-empty-state__actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.guided-empty-state .btn-secondary {
+  justify-self: start;
+}
+
 .btn-primary {
   height: 2.35rem;
   padding: 0.5rem 0.95rem;
@@ -1036,9 +1046,19 @@ body {
   line-height: 1.6;
 }
 
+.auth-card__actions {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.auth-card__note {
+  font-size: 0.78rem;
+  color: var(--color-text-subtle);
+}
+
 .account-menu {
   display: grid;
-  gap: 0.65rem;
+  gap: 0.55rem;
   padding: 0.8rem;
   border: 1px solid var(--color-sidebar-border);
   border-radius: 10px;
@@ -1067,6 +1087,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .account-menu .btn-secondary {
@@ -1340,7 +1361,7 @@ body {
 
   .toolbar-meta {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-end;
   }
 
   .batch-bar,
