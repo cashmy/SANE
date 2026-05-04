@@ -699,9 +699,6 @@ export function ReviewView({
                                 <span className="source-subject">
                                   {source.representative_subject}
                                 </span>
-                                <span className="source-reason">
-                                  {source.candidate_reason}
-                                </span>
                                 <button
                                   className="evidence-toggle"
                                   type="button"
@@ -816,14 +813,8 @@ export function ReviewView({
                                       </span>
                                     </div>
                                     <div className="source-evidence__item">
-                                      <strong>Suggested local decision</strong>
-                                      <span>
-                                        {
-                                          decisionActionLabels[
-                                            source.suggested_decision
-                                          ]
-                                        }
-                                      </span>
+                                      <strong>Classifier reason</strong>
+                                      <span>{source.candidate_reason}</span>
                                     </div>
                                     <div className="source-evidence__item">
                                       <strong>Current local decision</strong>

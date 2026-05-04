@@ -220,12 +220,21 @@ pytest
 
 Use the one-off local reclassification command after classifier heuristic changes when you want already-ingested Review rows to reflect the new deterministic rules without running a new Gmail scan.
 
+`--account-id` is required. It must be the existing `EmailAccount.id` for the single mailbox you want to refresh.
+
 Run it against a single mailbox account id:
 
 ```bash
 cd backend
 python -m app.commands.reclassify_sources --account-id 2
 ```
+
+Use it when:
+
+- classifier heuristics changed
+- you want existing local Review rows to reflect the new classifier output
+- you do not want to run a new Gmail scan
+- you want the refresh scoped to one mailbox only
 
 The command only uses stored local source rows for that mailbox and reports:
 
@@ -240,16 +249,34 @@ It recomputes only these source fields:
 - `candidate_reason`
 - `confidence`
 
-It does not:
+It does not touch:
 
 - run a Gmail scan
 - call the Gmail API
-- modify Gmail
-- change decision history
+- mutate Gmail
+- change decisions or decision history
 - change `processing_state`
 - change ingestion runs
-- change credentials
+- alter credentials
 - change mailbox connection state
+
+Explicitly: this command does not scan Gmail, call the Gmail API, mutate Gmail, change decisions, or alter credentials.
+
+Example output summary:
+
+```json
+{
+  "account_email": "cmyers880@gmail.com",
+  "account_id": 2,
+  "resulting_signal_counts": {
+    "ambiguous_source": 21,
+    "promotional_digest": 10,
+    "recurring_updates": 0
+  },
+  "rows_changed": 31,
+  "rows_inspected": 31
+}
+```
 
 This is a mailbox-scoped local refresh step for classifier output only, not a mailbox sync or action execution path.
 

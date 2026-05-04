@@ -614,6 +614,9 @@ body {
   color: var(--color-text-muted);
   margin-top: 0.12rem;
   max-width: 42ch;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .source-reason,

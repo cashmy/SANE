@@ -27,6 +27,7 @@ Review after reset/rescan -> 31 pending sources loaded
 Prompt 11 live browser validation -> passed using already-ingested live Gmail-derived data
 Prompt 11 validation state -> 29 pending sources, 6 decision events, Gmail unchanged
 Prompt 11b Playwright E2E smoke -> 3 passed
+Prompt 12b Review evidence density -> frontend 26 passed, Playwright 3 passed, build passed
 ```
 
 Validation note:
@@ -120,6 +121,8 @@ Validation note:
 | A56 | Performance/Request Hygiene | Frontend/API | Review performs a lightweight decision-count fetch on page/refresh to keep history count current. Functional, but may become inefficient as decision history grows. | Open |
 | A57 | Test Infrastructure | E2E/CI | Playwright smoke tests exist locally, but CI wiring and Playwright report artifact publishing are not yet configured. | Deferred |
 | A58 | Test Fixture Hygiene | Frontend/Test | Vitest and Playwright now have separate seeded mock state. Deduplicate or share fixture definitions later to reduce drift risk. | Open |
+| A59 | Real Data UX | Frontend/Review | Review row and evidence expansion repeat too much data, making the expanded evidence feel redundant rather than clarifying. Tighten collapsed row density and reserve expanded evidence for supporting details. | Implemented for ALPHA |
+| A60 | Real Data UX | Frontend/Review + Decisions Layout | Mailbox scope context occupies too much vertical space above the Review and Decisions tables. Compress, relocate, or make it available through a compact control/modal so the table remains primary. | Open |
 
 ---
 
@@ -1767,7 +1770,23 @@ The duplicate fetches are tolerable during ALPHA, but request churn can make deb
 
 Status:
 
-Open.
+Implemented for ALPHA.
+
+Implementation result:
+
+- collapsed Review rows now keep source name and a compact representative-subject clue.
+- classifier reason moved out of the collapsed row.
+- expanded evidence now contains the classifier reason.
+- suggested local decision was removed from expanded evidence because the row already shows the suggested chip.
+- evidence still shows mailbox scope, sender domains, representative subject, latest scan context, and current local decision.
+
+Validation:
+
+```text
+frontend: npm run test:run -> 26 passed
+frontend: npm run test:e2e -> 3 passed
+frontend: npm run build -> passed
+```
 
 ### A56 - Review Decision Count Fetch Churn
 
@@ -1830,6 +1849,110 @@ If the seeded data diverges between Vitest and Playwright fixtures, tests may de
 Decision:
 
 Track fixture deduplication/shared fixture extraction as future test hygiene.
+
+Status:
+
+Open.
+
+### A59 - Review Evidence Redundancy / Row Density
+
+Observation:
+
+Live Review UI after classifier reclassification shows redundant information between the collapsed source row and expanded evidence row.
+
+Examples:
+
+- representative subject appears in the main row and again in evidence
+- suggested decision appears as a chip and again in evidence
+- long reason text in the main row makes the expanded evidence feel less useful
+- signal and suggested decision are visually adjacent and can feel like repeated conclusion rather than separate evidence
+
+Decision:
+
+Refine the Review row/evidence layout so the collapsed row communicates scan-priority essentials and the expanded row reveals supporting evidence.
+
+Preferred direction:
+
+Collapsed row should focus on:
+
+- source name
+- sender email(s)
+- email count
+- category
+- signal
+- suggested action
+- state
+- actions
+- a short reason or subject snippet, but not redundant long detail
+
+Expanded evidence should focus on:
+
+- mailbox scope
+- sender domain
+- representative subject if removed from collapsed row
+- classifier/evidence reason
+- latest scan context
+- current local decision if useful
+
+Avoid:
+
+- repeating the same subject in both collapsed and expanded row
+- repeating suggested local decision in evidence if it is already visible in the row
+- turning the source cell into a long explanatory paragraph
+
+Status:
+
+Implemented for ALPHA.
+
+Implementation result:
+
+- collapsed Review rows now keep source name and a compact representative-subject clue.
+- classifier reason moved out of the collapsed row.
+- expanded evidence now contains the classifier reason.
+- suggested local decision was removed from expanded evidence because the row already shows the suggested chip.
+- evidence still shows mailbox scope, sender domains, representative subject, latest scan context, and current local decision.
+
+Validation:
+
+```text
+frontend: npm run test:run -> 26 passed
+frontend: npm run test:e2e -> 3 passed
+frontend: npm run build -> passed
+```
+
+### A60 - Mailbox Scope Layout Density
+
+Observation:
+
+The mailbox scope card appears on both Review and Decisions.
+
+It is useful, but currently pushes the primary table too far down the screen.
+
+The information is not needed constantly during normal review work, while the table is the primary work surface.
+
+Decision:
+
+Track as a future UI refinement.
+
+Preferred directions:
+
+- reduce the mailbox scope card width and move it into the upper-right blank space near the KPI area, or
+- replace the large card with a compact button/control that opens a modal/popover with mailbox details, or
+- otherwise compress the mailbox context so the Review table moves higher on the page
+- apply the same layout solution consistently to Review and Decisions
+
+Preserve:
+
+- selected mailbox visibility
+- connection status visibility
+- latest scan context availability
+- no-scan/no-Gmail-action boundary
+
+Avoid:
+
+- hiding mailbox context so thoroughly that users cannot tell which Gmail account they are reviewing
+- adding a large new card or dashboard band
+- reducing table scan space further
 
 Status:
 
