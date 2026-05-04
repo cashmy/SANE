@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.email_account import EmailAccount
 from app.models.user_email import UserEmail
-from app.models.enums import ConnectionStatus, EmailAccountProvider
+from app.models.enums import ConnectionStatus, EmailAccountProvider, UserEmailRole
 from app.models.user import User
 
 settings = get_settings()
@@ -45,7 +45,7 @@ def _ensure_local_alpha_user_email(db: Session, user: User) -> None:
         UserEmail(
             user_id=user.id,
             email=settings.local_user_email,
-            role="primary",
+            role=UserEmailRole.primary,
             is_primary=True,
             is_verified=True,
         )

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.models.auth_identity import AuthIdentity
-from app.models.enums import AuthProvider
+from app.models.enums import AuthProvider, UserEmailRole
 from app.models.user import User
 from app.models.user_email import UserEmail
 
@@ -211,7 +211,7 @@ def _upsert_user_email(
         existing.is_verified = existing.is_verified or is_verified
         if not any(candidate.is_primary for candidate in user.user_emails):
             existing.is_primary = True
-            existing.role = "primary"
+            existing.role = UserEmailRole.primary
         return
 
     has_primary = any(candidate.is_primary for candidate in user.user_emails)
@@ -219,7 +219,7 @@ def _upsert_user_email(
         UserEmail(
             user_id=user.id,
             email=email,
-            role="primary" if not has_primary else "login",
+            role=UserEmailRole.primary if not has_primary else UserEmailRole.login,
             is_primary=not has_primary,
             is_verified=is_verified,
         )

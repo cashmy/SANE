@@ -88,7 +88,7 @@ Validation note:
 | A23 | SKY Decision | Frontend/Workflow | Add multi-select / batch decision support before real high-volume ALPHA, with human confirmation and no external batch execution. | Resolved for ALPHA |
 | A24 | SKY Decision | Backend/Workflow Lifecycle | Add a way to clear or compact revision history past a selected point so decision history does not become its own clutter source. | Deferred |
 | A25 | Must Fix Before ALPHA Review | Frontend/Visual Design | Theme tokens are technically integrated, but components need visual tuning so the selected palette shapes the UI more intentionally and visible progress is legible to humans. | Partially Resolved |
-| A26 | Technical Debt | Backend/Data Model | Internal SQLAlchemy `Candidate` model/table name was retained to reduce ALPHA churn while API/UI/docs use source language. Rename to `Source`/`EmailSource` before the model hardens. | Open |
+| A26 | Technical Debt | Backend/Data Model | Internal SQLAlchemy `Candidate` model/table name was retained to reduce ALPHA churn while API/UI/docs use source language. Prompt 13c audited the rename blast radius as large across backend models, migrations, tests, and docs; keep deferred until explicitly approved. | Deferred after Audit |
 | A27 | Deferred Scale Risk | Backend/Search | Source search uses simple ALPHA-scale filtering. Replace with a deliberate PostgreSQL search/index strategy before larger mailbox windows or real high-volume scanning. | Deferred / Not Blocking Bounded ALPHA |
 | A28 | Architecture Reconsideration | Backend/Database | SQLite-first may be a Native workforce default that creates unnecessary churn under AI-Injected compressed development. SANE moved to PostgreSQL as authoritative runtime/test persistence, and the process lesson has been captured. | Resolved / Process Captured |
 | A29 | RBA Recommendation | Process/UI Validation | Do not defer visible UI refinement solely because functionality works. Human reviewers often need visible change to perceive progress, trust the loop, and understand what changed. | Process Captured |
@@ -123,6 +123,7 @@ Validation note:
 | A58 | Test Fixture Hygiene | Frontend/Test | Vitest and Playwright now have separate seeded mock state. Deduplicate or share fixture definitions later to reduce drift risk. | Open |
 | A59 | Real Data UX | Frontend/Review | Review row and evidence expansion repeat too much data, making the expanded evidence feel redundant rather than clarifying. Tighten collapsed row density and reserve expanded evidence for supporting details. | Implemented for ALPHA |
 | A60 | Real Data UX | Frontend/Review + Decisions Layout | Mailbox scope context occupies too much vertical space above the Review and Decisions tables. Compress, relocate, or make it available through a compact control/modal so the table remains primary. | Open |
+| A61 | Data Model Governance | Backend/Auth Model | `UserEmail`, `AuthIdentity`, and `EmailAccount` remain conceptually separate, and `UserEmail.role` is now enum-backed with governed values for primary/contact/recovery/login/billing/notification semantics. | Implemented for ALPHA |
 
 ---
 
@@ -632,6 +633,12 @@ If this name remains too long, it may fossilize the older message/candidate conc
 Future action:
 
 Rename internal persistence and service language toward `Source` or `EmailSource` before the data model hardens around Gmail ingestion, migrations, or publication.
+
+Prompt 13c audit result:
+
+- blast radius classified as large
+- major impact areas include backend model imports, `Decision.candidate_id`, the `candidates` table and migrations, backend tests, frontend `CandidateSignal`/`CandidateState` naming, and multiple docs/artifacts
+- keep deferred until SKY explicitly approves a dedicated rename pass
 
 ### A27 - ALPHA Search / Indexing Risk
 

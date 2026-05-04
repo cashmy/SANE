@@ -68,3 +68,12 @@ class IngestionStatus(str, Enum):
     completed = "completed"
     failed = "failed"
     cancelled = "cancelled"
+
+
+class UserEmailRole(str, Enum):
+    primary = "primary"
+    login = "login"
+    contact = "contact"
+    recovery = "recovery"
+    billing = "billing"
+    notification = "notification"

@@ -4,11 +4,12 @@ from types import SimpleNamespace
 from cryptography.hazmat.primitives.asymmetric import rsa
 import jwt
 import pytest
+from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy import func, select
 
 from app.core.config import get_settings
 from app.models.auth_identity import AuthIdentity
-from app.models.enums import AuthProvider
+from app.models.enums import AuthProvider, UserEmailRole
 from app.models.user import User
 from app.models.user_email import UserEmail
 from app.services.auth_service import (
@@ -109,6 +110,7 @@ def test_find_or_create_user_creates_new_user_identity_and_verified_email(
     assert identity.provider == AuthProvider.google
     assert identity.user_id == user.id
     assert email_row is not None
+    assert email_row.role == UserEmailRole.primary
     assert email_row.is_verified is True
     assert email_row.is_primary is True
     assert user.display_name == "Owner Example"
@@ -213,3 +215,60 @@ def test_find_or_create_user_does_not_link_unverified_email(db_session) -> None:
 
     assert created.id != existing_user.id
     assert db_session.scalar(select(func.count()).select_from(AuthIdentity)) == 1
+
+
+def test_find_or_create_user_adds_login_role_for_secondary_verified_email(
+    db_session,
+) -> None:
+    user = find_or_create_user(
+        db_session,
+        sub="google-sub-5",
+        email="owner@example.com",
+        name="Owner Example",
+        email_verified=True,
+    )
+    db_session.commit()
+
+    returned = find_or_create_user(
+        db_session,
+        sub="google-sub-5",
+        email="alias@example.com",
+        name="Owner Example",
+        email_verified=True,
+    )
+    db_session.commit()
+
+    email_rows = list(
+        db_session.scalars(
+            select(UserEmail)
+            .where(UserEmail.user_id == user.id)
+            .order_by(UserEmail.email.asc())
+        ).all()
+    )
+    alias_row = next(row for row in email_rows if row.email == "alias@example.com")
+    primary_row = next(row for row in email_rows if row.email == "owner@example.com")
+
+    assert returned.id == user.id
+    assert primary_row.role == UserEmailRole.primary
+    assert alias_row.role == UserEmailRole.login
+    assert alias_row.is_primary is False
+    assert alias_row.is_verified is True
+
+
+def test_user_email_role_rejects_unknown_values(db_session) -> None:
+    user = User(email="invalid-role@example.com", display_name="Invalid Role")
+    db_session.add(user)
+    db_session.flush()
+
+    db_session.add(
+        UserEmail(
+            user_id=user.id,
+            email="invalid-role@example.com",
+            role="unexpected_role",
+            is_primary=True,
+            is_verified=True,
+        )
+    )
+
+    with pytest.raises((StatementError, IntegrityError)):
+        db_session.flush()
