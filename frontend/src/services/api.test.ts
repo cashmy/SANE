@@ -44,7 +44,7 @@ describe("workflow api client", () => {
               "Weekend flash sale and member-only discount roundup",
             mailbox_category: "Promotions",
             candidate_reason:
-              "Repeated promotional language suggests this source is mostly marketing noise.",
+              "Observed promotional cues in stored metadata: 'deal', 'sale', and 'discount'. Suggest marking this source as low value, while keeping the final decision human-reviewed.",
             classifier_signal: "promotional_digest",
             suggested_decision: "mark_low_value",
             current_decision: null,

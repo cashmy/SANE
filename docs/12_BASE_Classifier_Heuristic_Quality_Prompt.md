@@ -2,7 +2,17 @@
 
 ## Status
 
-Draft prompt. Do not execute until Prompt 11 is complete and SKY has reviewed the real-data Review/Decisions workflow.
+Ready for BASE clarification gate.
+
+Prompt 11 and Prompt 11b are complete.
+
+Current validation state includes:
+
+- backend pytest: 65 passed
+- frontend Vitest: 26 passed
+- frontend build: passed
+- Playwright E2E smoke: 3 passed
+- live Gmail-derived Review/Decisions validation passed using already-ingested data
 
 ## Role
 
@@ -19,6 +29,13 @@ SANE currently uses deterministic local classification heuristics to suggest sou
 Prompt 12 focuses on whether those suggestions are useful against live Gmail-derived source rows.
 
 This pass should improve deterministic heuristic quality and human-facing explanation quality without introducing external AI provider calls.
+
+Current live mailbox state after Prompt 11 validation:
+
+- connected Gmail account exists
+- latest reset/rescan created 31 pending source rows
+- Prompt 11 validation produced 6 local decision events
+- Gmail itself remains unchanged
 
 ## Active Execution Context
 
@@ -38,11 +55,13 @@ Before proposing or implementing changes, inspect:
 
 - `docs/RBA_HOMSP_BASE_Primer.md`
 - `docs/Stage1_ALPHA_Review_Issue_Register.md`
-- Prompt 10 and Prompt 11 reports/artifacts
+- Prompt 10, 10b, 11, and 11b reports/artifacts
 - classifier service
 - Gmail normalization service
 - source/candidate model and schemas
 - Review view display of signal/reason/suggested decision
+- Review evidence display from Prompt 11
+- Playwright E2E smoke fixtures if frontend display expectations change
 - backend and frontend tests
 
 ## Clarification Gate
@@ -54,10 +73,12 @@ Before implementation:
 3. Identify where live/realistic source suggestions appear weak, misleading, or overly generic.
 4. State which deterministic heuristic changes are proposed.
 5. State whether any data model or API changes are needed.
-6. State how human authority remains clear.
-7. Ask clarifying questions if classification meaning, decision vocabulary, or evidence requirements are ambiguous.
-8. Ask any other clarifying questions from code inspection, test expectations, UI implications, or conflicts between prompt and implementation.
-9. You must have human approval before implementation.
+6. State whether existing live-ingested rows are sufficient for review or whether mocked examples are needed.
+7. State how human authority remains clear.
+8. State whether frontend display text, evidence rows, or Playwright fixtures need updates.
+9. Ask clarifying questions if classification meaning, decision vocabulary, evidence requirements, or safety boundaries are ambiguous.
+10. Ask any other clarifying questions from code inspection, test expectations, UI implications, or conflicts between prompt and implementation.
+11. You must have human approval before implementation.
 
 ## Goal
 
@@ -74,6 +95,7 @@ Prefer:
 - conservative suggestions
 - clear ambiguity labeling
 - testable behavior
+- source/sender safety over aggressive classification
 
 Avoid:
 
@@ -91,6 +113,8 @@ Preserve:
 - no full email body storage
 - no external Gmail action execution
 - human-confirmed decisions
+- local-only decision state
+- no Gmail scans during classifier validation unless SKY explicitly approves
 
 Do not introduce:
 
@@ -99,6 +123,7 @@ Do not introduce:
 - unsubscribe execution
 - source merge/split
 - sender-level allow/block controls unless SKY explicitly approves expansion
+- Gmail normalization changes unless needed and approved after the clarification gate
 
 ## Testing
 
@@ -110,6 +135,8 @@ Backend tests:
 - classifier reasons are stable and human-readable
 
 Frontend tests only if display behavior changes.
+
+Playwright tests only need updates if visible workflow/copy changes affect the smoke fixtures.
 
 ## Validation
 
@@ -124,6 +151,17 @@ npm run test:run
 npm run build
 ```
 
+If frontend workflow/copy or Playwright fixtures change, also run:
+
+```powershell
+cd frontend
+npm run test:e2e
+```
+
+Do not run a live Gmail scan for this prompt unless SKY explicitly approves it.
+
+If browser validation is performed, use already-ingested live Gmail-derived data.
+
 ## Report
 
 Report:
@@ -133,4 +171,6 @@ Report:
 - examples covered
 - tests added/updated
 - validation results
+- whether Playwright was affected
+- live-tested vs mocked behavior
 - remaining classifier risks

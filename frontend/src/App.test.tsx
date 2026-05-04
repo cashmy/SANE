@@ -54,7 +54,7 @@ const seededSources: SourceRow[] = [
       "Weekend flash sale and member-only discount roundup",
     mailbox_category: "Promotions",
     candidate_reason:
-      "Repeated promotional language suggests this source is mostly marketing noise.",
+      "Observed promotional cues in stored metadata: 'deal', 'sale', and 'discount'. Suggest marking this source as low value, while keeping the final decision human-reviewed.",
     classifier_signal: "promotional_digest",
     suggested_decision: "mark_low_value",
     current_decision: null,
@@ -74,7 +74,7 @@ const seededSources: SourceRow[] = [
     representative_subject: "Monthly status summary for your workspace",
     mailbox_category: "Updates",
     candidate_reason:
-      "The source shows some low-value traits, but it remains ambiguous and should stay reviewable.",
+      "Observed evidence is limited or mixed in stored metadata: 'bulletin' and 'monthly'. Keep Source for now until a human reviews the source.",
     classifier_signal: "ambiguous_source",
     suggested_decision: "keep_for_now",
     current_decision: null,
@@ -93,7 +93,7 @@ const seededSources: SourceRow[] = [
     representative_subject: "April feature digest and customer webinar recap",
     mailbox_category: "Updates",
     candidate_reason:
-      "This looks like a recurring update stream that may merit a later unsubscribe decision.",
+      "Observed recurring list cues in stored metadata: 'newsletter', 'digest', and 'recap'. Queue for Unsubscribe may be worth human review.",
     classifier_signal: "recurring_updates",
     suggested_decision: "unsubscribe_later",
     current_decision: null,
@@ -113,7 +113,7 @@ const seededSources: SourceRow[] = [
       "This week in founder communities and partner offers",
     mailbox_category: "Promotions",
     candidate_reason:
-      "This looks like a recurring update stream that may merit a later unsubscribe decision.",
+      "Observed recurring list cues in stored metadata: 'roundup' and 'digest'. Queue for Unsubscribe may be worth human review.",
     classifier_signal: "recurring_updates",
     suggested_decision: "unsubscribe_later",
     current_decision: null,
@@ -132,7 +132,7 @@ const seededSources: SourceRow[] = [
     representative_subject: "Community office hours and release notes",
     mailbox_category: "Updates",
     candidate_reason:
-      "The source shows some low-value traits, but it remains ambiguous and should stay reviewable.",
+      "Observed evidence is limited or mixed in stored metadata: 'release notes' and 'community notes'. Keep Source for now until a human reviews the source.",
     classifier_signal: "ambiguous_source",
     suggested_decision: "keep_for_now",
     current_decision: null,
@@ -148,7 +148,7 @@ const seededSources: SourceRow[] = [
     representative_subject: "Neighborhood events newsletter for this week",
     mailbox_category: "Social",
     candidate_reason:
-      "This looks like a recurring update stream that may merit a later unsubscribe decision.",
+      "Observed recurring list cues in stored metadata: 'newsletter' and 'weekly'. Queue for Unsubscribe may be worth human review.",
     classifier_signal: "recurring_updates",
     suggested_decision: "unsubscribe_later",
     current_decision: null,
@@ -164,7 +164,7 @@ const seededSources: SourceRow[] = [
     representative_subject: "Usage threshold reminder and invoice preview",
     mailbox_category: "Updates",
     candidate_reason:
-      "The source shows some low-value traits, but it remains ambiguous and should stay reviewable.",
+      "Observed cautionary metadata that can indicate transactional or account-related email: 'invoice', 'billing', and 'usage threshold'. Keep Source for now and review it locally before taking any stronger action.",
     classifier_signal: "ambiguous_source",
     suggested_decision: "keep_for_now",
     current_decision: null,
@@ -180,7 +180,7 @@ const seededSources: SourceRow[] = [
     representative_subject: "Invitation to join a short feedback panel",
     mailbox_category: "Updates",
     candidate_reason:
-      "The source shows some low-value traits, but it remains ambiguous and should stay reviewable.",
+      "Stored metadata is too limited or mixed to support a stronger suggestion. Keep Source for now until a human reviews the source.",
     classifier_signal: "ambiguous_source",
     suggested_decision: "keep_for_now",
     current_decision: null,
