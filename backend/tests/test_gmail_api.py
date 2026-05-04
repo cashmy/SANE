@@ -289,12 +289,13 @@ def test_scan_uses_sender_domain_fallback_and_latest_subject_for_representative_
             return {
                 "id": message_id,
                 "internalDate": "1714740000000",
-                "labelIds": ["CATEGORY_PROMOTIONS"],
+                "labelIds": ["CATEGORY_PROMOTIONS", "Label_1"],
                 "snippet": "Older promotional snippet",
                 "payload": {
                     "headers": [
                         {"name": "From", "value": "offers@example.com"},
                         {"name": "Subject", "value": "Older subject"},
+                        {"name": "List-ID", "value": "<older.list.example>"},
                     ]
                 },
             }
@@ -302,12 +303,17 @@ def test_scan_uses_sender_domain_fallback_and_latest_subject_for_representative_
         return {
             "id": message_id,
             "internalDate": "1714743600000",
-            "labelIds": ["CATEGORY_PROMOTIONS"],
+            "labelIds": ["CATEGORY_PROMOTIONS", "Label_2"],
             "snippet": "Latest promotional snippet",
             "payload": {
                 "headers": [
                     {"name": "From", "value": "offers@example.com"},
                     {"name": "Subject", "value": "Latest subject"},
+                    {"name": "List-ID", "value": "<latest.list.example>"},
+                    {
+                        "name": "List-Unsubscribe",
+                        "value": "<mailto:unsubscribe@example.com>",
+                    },
                 ]
             },
         }
@@ -332,8 +338,17 @@ def test_scan_uses_sender_domain_fallback_and_latest_subject_for_representative_
     assert response.status_code == 200
     assert candidate is not None
     assert candidate.source_name == "example.com"
+    assert candidate.sender_domain == "example.com"
     assert candidate.email_count == 2
     assert candidate.representative_subject == "Latest subject"
+    assert candidate.representative_message_id == "m2"
+    assert candidate.representative_message_timestamp is not None
+    assert candidate.representative_message_timestamp.astimezone(timezone.utc) == (
+        datetime(2024, 5, 3, 13, 40, tzinfo=timezone.utc)
+    )
+    assert candidate.representative_label_ids == ["CATEGORY_PROMOTIONS", "Label_2"]
+    assert candidate.representative_list_id == "latest.list.example"
+    assert candidate.has_list_unsubscribe is True
 
 
 def test_scan_does_not_collapse_same_domain_marketing_and_transactional_senders(
@@ -403,6 +418,69 @@ def test_scan_does_not_collapse_same_domain_marketing_and_transactional_senders(
         "alerts@brand.example",
         "offers@brand.example",
     ]
+
+
+def test_scan_prefers_timestamped_representative_when_older_message_has_no_internal_date(
+    authenticated_client_factory,
+    db_session,
+    monkeypatch,
+) -> None:
+    client, user = authenticated_client_factory(email="mixed-date-user@example.com")
+    account = _make_connected_gmail_account(db_session, user_id=user.id)
+
+    monkeypatch.setattr(
+        "app.services.gmail_service._list_message_ids",
+        lambda _token, _limit, _scope: ["m1", "m2"],
+    )
+
+    def fake_metadata(_token: str, message_id: str) -> dict:
+        if message_id == "m1":
+            return {
+                "id": message_id,
+                "labelIds": ["CATEGORY_PROMOTIONS"],
+                "snippet": "Older fallback snippet",
+                "payload": {
+                    "headers": [
+                        {"name": "From", "value": "offers@example.com"},
+                        {"name": "Subject", "value": "Older subject"},
+                    ]
+                },
+            }
+
+        return {
+            "id": message_id,
+            "internalDate": "1714743600000",
+            "labelIds": ["CATEGORY_PROMOTIONS"],
+            "snippet": "Latest promotional snippet",
+            "payload": {
+                "headers": [
+                    {"name": "From", "value": "offers@example.com"},
+                    {"name": "Subject", "value": "Latest subject"},
+                ]
+            },
+        }
+
+    monkeypatch.setattr(
+        "app.services.gmail_service._get_message_metadata", fake_metadata
+    )
+
+    response = client.post(
+        "/api/gmail/scan",
+        json={
+            "email_account_id": account.id,
+            "limit_count": 50,
+            "scope": "CATEGORY_PROMOTIONS",
+        },
+    )
+
+    candidate = db_session.scalar(
+        select(Candidate).where(Candidate.email_account_id == account.id)
+    )
+
+    assert response.status_code == 200
+    assert candidate is not None
+    assert candidate.representative_subject == "Latest subject"
+    assert candidate.representative_message_id == "m2"
 
 
 def test_repeat_scan_preserves_existing_decision_history(

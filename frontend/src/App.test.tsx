@@ -49,9 +49,15 @@ const seededSources: SourceRow[] = [
       "offers@dailydeals.example",
       "member-perks@dailydeals.example",
     ],
+    sender_domain: "dailydeals.example",
     email_count: 74,
     representative_subject:
       "Weekend flash sale and member-only discount roundup",
+    representative_message_id: "190abc123",
+    representative_message_timestamp: "2026-05-02T17:01:00.000Z",
+    representative_label_ids: ["CATEGORY_PROMOTIONS", "Label_Deals"],
+    representative_list_id: "members.dailydeals.example",
+    has_list_unsubscribe: true,
     mailbox_category: "Promotions",
     candidate_reason:
       "Observed promotional cues in stored metadata: 'deal', 'sale', and 'discount'. Suggest marking this source as low value, while keeping the final decision human-reviewed.",
@@ -192,6 +198,9 @@ const seededSources: SourceRow[] = [
 const cloneSource = (source: SourceRow): SourceRow => ({
   ...source,
   sender_emails: [...source.sender_emails],
+  representative_label_ids: source.representative_label_ids
+    ? [...source.representative_label_ids]
+    : source.representative_label_ids,
 });
 
 const toSourceSummary = (source: SourceRow): SourceSummary => ({
@@ -915,8 +924,33 @@ describe("App", () => {
       }),
     );
 
-    expect(screen.getByText(/sender domains/i)).toBeInTheDocument();
-    expect(screen.getByText(/^dailydeals\.example$/i)).toBeInTheDocument();
+    const evidenceRow = (dailyDealsRow as HTMLElement).nextElementSibling;
+    expect(evidenceRow).not.toBeNull();
+
+    const evidence = within(evidenceRow as HTMLElement);
+    expect(evidence.getByText(/^sender domain$/i)).toBeInTheDocument();
+    expect(evidence.getByText(/^dailydeals\.example$/i)).toBeInTheDocument();
+    expect(evidence.queryByText(/sender domains/i)).not.toBeInTheDocument();
+    expect(
+      evidence.queryByText(/stored sender domain/i),
+    ).not.toBeInTheDocument();
+    expect(
+      evidence.getByText(/representative message date/i),
+    ).toBeInTheDocument();
+    expect(evidence.getByText(/^May 2, 2026, 12:01 PM$/i)).toBeInTheDocument();
+    expect(
+      evidence.getByText(/representative message id/i),
+    ).toBeInTheDocument();
+    expect(evidence.getByText(/^190abc123$/i)).toBeInTheDocument();
+    expect(evidence.getByText(/representative labels/i)).toBeInTheDocument();
+    expect(
+      evidence.getByText(/CATEGORY_PROMOTIONS, Label_Deals/i),
+    ).toBeInTheDocument();
+    expect(
+      evidence.getByText(/^members\.dailydeals\.example$/i),
+    ).toBeInTheDocument();
+    expect(evidence.getByText(/list-unsubscribe header/i)).toBeInTheDocument();
+    expect(evidence.getByText(/^present$/i)).toBeInTheDocument();
 
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /review mailbox scope/i }),

@@ -83,6 +83,24 @@ class ReclassificationSummary:
         }
 
 
+@dataclass
+class SourceEvidenceBackfillSummary:
+    account_id: int
+    account_email: str
+    rows_inspected: int
+    rows_changed: int
+    sender_domain_backfilled: int
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "account_id": self.account_id,
+            "account_email": self.account_email,
+            "rows_inspected": self.rows_inspected,
+            "rows_changed": self.rows_changed,
+            "sender_domain_backfilled": self.sender_domain_backfilled,
+        }
+
+
 def ensure_demo_candidates(db: Session) -> EmailAccount:
     """Ensure the Local ALPHA demo candidates exist and return the local ALPHA email account."""
     user = get_or_create_local_alpha_user(db)
@@ -108,6 +126,7 @@ def ensure_demo_candidates(db: Session) -> EmailAccount:
                 source_key=seed.source_key,
                 source_name=seed.source_name,
                 sender_emails=list(seed.sender_emails),
+                sender_domain=_sender_domain_from_email(seed.sender_emails[0]),
                 email_count=seed.email_count,
                 representative_subject=seed.representative_subject,
                 mailbox_category=seed.mailbox_category,
@@ -320,6 +339,52 @@ def reclassify_sources_for_account(
         rows_inspected=len(sources),
         rows_changed=rows_changed,
         resulting_signal_counts=signal_counts,
+    )
+
+
+def backfill_source_evidence_for_account(
+    db: Session,
+    *,
+    email_account_id: int,
+) -> SourceEvidenceBackfillSummary:
+    account = db.get(EmailAccount, email_account_id)
+    if account is None:
+        raise EmailAccountNotFoundError(
+            f"Email account {email_account_id} was not found."
+        )
+
+    sources = list(
+        db.scalars(
+            select(Candidate)
+            .where(Candidate.email_account_id == account.id)
+            .order_by(Candidate.id.asc())
+        ).all()
+    )
+
+    rows_changed = 0
+    sender_domain_backfilled = 0
+
+    for source in sources:
+        if source.sender_domain:
+            continue
+
+        sender_domain = _candidate_sender_domain(source)
+        if not sender_domain:
+            continue
+
+        source.sender_domain = sender_domain
+        rows_changed += 1
+        sender_domain_backfilled += 1
+
+    if rows_changed:
+        db.commit()
+
+    return SourceEvidenceBackfillSummary(
+        account_id=account.id,
+        account_email=account.account_email,
+        rows_inspected=len(sources),
+        rows_changed=rows_changed,
+        sender_domain_backfilled=sender_domain_backfilled,
     )
 
 
@@ -552,3 +617,24 @@ def _classification_sender_email(source: Candidate) -> str:
     if source.sender_emails:
         return source.sender_emails[0]
     return source.source_key
+
+
+def _candidate_sender_domain(source: Candidate) -> str | None:
+    for sender_email in source.sender_emails:
+        sender_domain = _sender_domain_from_email(sender_email)
+        if sender_domain:
+            return sender_domain
+
+    return _sender_domain_from_email(source.source_key)
+
+
+def _sender_domain_from_email(sender_email: str | None) -> str | None:
+    if not sender_email:
+        return None
+
+    normalized = sender_email.strip().lower()
+    if "@" not in normalized:
+        return None
+
+    sender_domain = normalized.split("@", maxsplit=1)[1].strip()
+    return sender_domain or None

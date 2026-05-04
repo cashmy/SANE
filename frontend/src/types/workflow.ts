@@ -28,8 +28,14 @@ export interface SourceRow {
   source_key: string;
   source_name: string;
   sender_emails: string[];
+  sender_domain?: string | null;
   email_count: number;
   representative_subject: string;
+  representative_message_id?: string | null;
+  representative_message_timestamp?: string | null;
+  representative_label_ids?: string[] | null;
+  representative_list_id?: string | null;
+  has_list_unsubscribe?: boolean | null;
   mailbox_category: string;
   candidate_reason: string;
   classifier_signal: CandidateSignal;

@@ -114,10 +114,10 @@ test.describe("SANE Playwright smoke foundation", () => {
 
     const dailyRow = review.getByRole("row", { name: /Daily Deals Dispatch/i });
     await dailyRow.getByRole("button", { name: "Show evidence" }).click();
-    await expect(review.getByText("Sender domains")).toBeVisible();
+    await expect(review.getByText("Sender domain")).toBeVisible();
     await expect(review.getByText("No local decision recorded")).toBeVisible();
     await dailyRow.getByRole("button", { name: "Hide evidence" }).click();
-    await expect(review.getByText("Sender domains")).toBeHidden();
+    await expect(review.getByText("Sender domain")).toBeHidden();
 
     await expect(review.getByText("7 queued sources")).toBeVisible();
     await dailyRow.getByRole("button", { name: "Keep Source" }).click();

@@ -70,9 +70,13 @@ const mailboxStatusChipClass = (
   return "chip chip--neutral";
 };
 
-const getSenderDomains = (senderEmails: string[]) => [
-  ...new Set(senderEmails.map((email) => email.split("@")[1] ?? email)),
-];
+const getSenderDomainFallback = (senderEmails: string[]) => {
+  for (const senderEmail of senderEmails) {
+    const domain = senderEmail.split("@")[1]?.trim().toLowerCase();
+    if (domain) return domain;
+  }
+  return null;
+};
 
 interface ReviewViewProps {
   isLocalAlpha: boolean;
@@ -669,9 +673,11 @@ export function ReviewView({
                     ) : (
                       sources.map((source) => {
                         const isExpanded = expandedSourceId === source.id;
-                        const senderDomains = getSenderDomains(
-                          source.sender_emails,
-                        );
+                        const senderDomain =
+                          source.sender_domain ??
+                          getSenderDomainFallback(source.sender_emails);
+                        const representativeLabels =
+                          source.representative_label_ids?.join(", ") ?? null;
 
                         return (
                           <Fragment key={source.id}>
@@ -803,8 +809,11 @@ export function ReviewView({
                                       </span>
                                     </div>
                                     <div className="source-evidence__item">
-                                      <strong>Sender domains</strong>
-                                      <span>{senderDomains.join(", ")}</span>
+                                      <strong>Sender domain</strong>
+                                      <span>
+                                        {senderDomain ??
+                                          "No sender domain recorded"}
+                                      </span>
                                     </div>
                                     <div className="source-evidence__item">
                                       <strong>Representative subject</strong>
@@ -812,6 +821,48 @@ export function ReviewView({
                                         {source.representative_subject}
                                       </span>
                                     </div>
+                                    {source.representative_message_timestamp ? (
+                                      <div className="source-evidence__item">
+                                        <strong>
+                                          Representative message date
+                                        </strong>
+                                        <span>
+                                          {formatTimestamp(
+                                            source.representative_message_timestamp,
+                                          )}
+                                        </span>
+                                      </div>
+                                    ) : null}
+                                    {source.representative_message_id ? (
+                                      <div className="source-evidence__item">
+                                        <strong>
+                                          Representative message id
+                                        </strong>
+                                        <span>
+                                          {source.representative_message_id}
+                                        </span>
+                                      </div>
+                                    ) : null}
+                                    {representativeLabels ? (
+                                      <div className="source-evidence__item">
+                                        <strong>Representative labels</strong>
+                                        <span>{representativeLabels}</span>
+                                      </div>
+                                    ) : null}
+                                    {source.representative_list_id ? (
+                                      <div className="source-evidence__item">
+                                        <strong>List-ID</strong>
+                                        <span>
+                                          {source.representative_list_id}
+                                        </span>
+                                      </div>
+                                    ) : null}
+                                    {source.has_list_unsubscribe ? (
+                                      <div className="source-evidence__item">
+                                        <strong>List-Unsubscribe header</strong>
+                                        <span>Present</span>
+                                      </div>
+                                    ) : null}
                                     <div className="source-evidence__item">
                                       <strong>Classifier reason</strong>
                                       <span>{source.candidate_reason}</span>

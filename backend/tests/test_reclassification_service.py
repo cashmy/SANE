@@ -23,6 +23,7 @@ from app.models.user import User
 from app.models.user_email import UserEmail
 from app.services.workflow import (
     EmailAccountNotFoundError,
+    backfill_source_evidence_for_account,
     reclassify_sources_for_account,
 )
 
@@ -235,3 +236,120 @@ def test_reclassify_sources_for_account_updates_classifier_fields_only(
 def test_reclassify_sources_for_account_rejects_unknown_mailbox(db_session) -> None:
     with pytest.raises(EmailAccountNotFoundError):
         reclassify_sources_for_account(db_session, email_account_id=999999)
+
+
+def test_backfill_source_evidence_for_account_updates_sender_domain_only(
+    db_session,
+) -> None:
+    user = _make_user(
+        db_session,
+        email="backfill-user@example.com",
+        display_name="Backfill User",
+    )
+    other_user = _make_user(
+        db_session,
+        email="backfill-other@example.com",
+        display_name="Backfill Other User",
+    )
+    account = _make_connected_gmail_account(
+        db_session,
+        user_id=user.id,
+        account_email="backfill.mailbox@example.com",
+    )
+    other_account = _make_connected_gmail_account(
+        db_session,
+        user_id=other_user.id,
+        account_email="other.backfill@example.com",
+    )
+
+    missing_domain = Candidate(
+        email_account_id=account.id,
+        source_key="offers@dailydeals.example",
+        source_name="Daily Deals Dispatch",
+        sender_emails=["offers@dailydeals.example"],
+        sender_domain=None,
+        email_count=12,
+        representative_subject="Weekend flash sale and member-only discount roundup",
+        representative_message_id=None,
+        representative_message_timestamp=None,
+        representative_label_ids=None,
+        representative_list_id=None,
+        has_list_unsubscribe=None,
+        mailbox_category="Promotions",
+        candidate_reason="Observed promotional cues in stored metadata.",
+        classifier_signal=CandidateSignal.promotional_digest,
+        suggested_decision=DecisionValue.mark_low_value,
+        confidence=0.84,
+        processing_state=CandidateState.pending_review,
+    )
+    already_backfilled = Candidate(
+        email_account_id=account.id,
+        source_key="alerts@cloudbilling.example",
+        source_name="Cloud Billing Notices",
+        sender_emails=["alerts@cloudbilling.example"],
+        sender_domain="cloudbilling.example",
+        email_count=4,
+        representative_subject="Usage threshold reminder and invoice preview",
+        representative_message_id=None,
+        representative_message_timestamp=None,
+        representative_label_ids=None,
+        representative_list_id=None,
+        has_list_unsubscribe=None,
+        mailbox_category="Updates",
+        candidate_reason="Observed cautionary metadata in stored metadata.",
+        classifier_signal=CandidateSignal.ambiguous_source,
+        suggested_decision=DecisionValue.keep_for_now,
+        confidence=0.46,
+        processing_state=CandidateState.pending_review,
+    )
+    untouched_other = Candidate(
+        email_account_id=other_account.id,
+        source_key="digest@other.example",
+        source_name="Other Vendor",
+        sender_emails=["digest@other.example"],
+        sender_domain=None,
+        email_count=2,
+        representative_subject="Other digest",
+        representative_message_id=None,
+        representative_message_timestamp=None,
+        representative_label_ids=None,
+        representative_list_id=None,
+        has_list_unsubscribe=None,
+        mailbox_category="Promotions",
+        candidate_reason="Observed promotional cues in stored metadata.",
+        classifier_signal=CandidateSignal.promotional_digest,
+        suggested_decision=DecisionValue.mark_low_value,
+        confidence=0.84,
+        processing_state=CandidateState.pending_review,
+    )
+    db_session.add_all([missing_domain, already_backfilled, untouched_other])
+    db_session.commit()
+
+    summary = backfill_source_evidence_for_account(
+        db_session,
+        email_account_id=account.id,
+    )
+
+    db_session.expire_all()
+    refreshed_missing_domain = db_session.get(Candidate, missing_domain.id)
+    refreshed_already_backfilled = db_session.get(Candidate, already_backfilled.id)
+    refreshed_untouched_other = db_session.get(Candidate, untouched_other.id)
+
+    assert summary.as_dict() == {
+        "account_id": account.id,
+        "account_email": "backfill.mailbox@example.com",
+        "rows_inspected": 2,
+        "rows_changed": 1,
+        "sender_domain_backfilled": 1,
+    }
+    assert refreshed_missing_domain is not None
+    assert refreshed_missing_domain.sender_domain == "dailydeals.example"
+    assert refreshed_missing_domain.representative_message_id is None
+    assert refreshed_missing_domain.representative_message_timestamp is None
+    assert refreshed_missing_domain.representative_label_ids is None
+    assert refreshed_missing_domain.representative_list_id is None
+    assert refreshed_missing_domain.has_list_unsubscribe is None
+    assert refreshed_already_backfilled is not None
+    assert refreshed_already_backfilled.sender_domain == "cloudbilling.example"
+    assert refreshed_untouched_other is not None
+    assert refreshed_untouched_other.sender_domain is None

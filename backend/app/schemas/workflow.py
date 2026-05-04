@@ -28,8 +28,14 @@ class SourceRead(BaseModel):
     source_key: str
     source_name: str
     sender_emails: list[str]
+    sender_domain: str | None = None
     email_count: int
     representative_subject: str
+    representative_message_id: str | None = None
+    representative_message_timestamp: datetime | None = None
+    representative_label_ids: list[str] | None = None
+    representative_list_id: str | None = None
+    has_list_unsubscribe: bool | None = None
     mailbox_category: str
     candidate_reason: str
     classifier_signal: CandidateSignal

@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    Boolean,
     JSON,
     DateTime,
     Enum as SqlEnum,
@@ -45,8 +46,22 @@ class Candidate(Base):
     source_key: Mapped[str] = mapped_column(String(160))
     source_name: Mapped[str] = mapped_column(String(140))
     sender_emails: Mapped[list[str]] = mapped_column(JSON)
+    sender_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email_count: Mapped[int]
     representative_subject: Mapped[str] = mapped_column(String(255))
+    representative_message_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    representative_message_timestamp: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    representative_label_ids: Mapped[list[str] | None] = mapped_column(
+        JSON, nullable=True
+    )
+    representative_list_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    has_list_unsubscribe: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     mailbox_category: Mapped[str] = mapped_column(String(80))
     candidate_reason: Mapped[str] = mapped_column(Text)
     classifier_signal: Mapped[CandidateSignal] = mapped_column(

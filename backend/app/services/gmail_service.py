@@ -59,10 +59,13 @@ class _NormalizedSource:
     sender_email: str
     sender_domain: str
     representative_subject: str
+    representative_label_ids: list[str] | None
+    representative_list_id: str | None
+    has_list_unsubscribe: bool
     mailbox_category: str
     message_count: int
     representative_message_id: str
-    recent_message_timestamp: int | None
+    representative_message_timestamp: datetime | None
 
 
 @dataclass
@@ -476,6 +479,8 @@ def _get_message_metadata(access_token: str, message_id: str) -> dict[str, Any]:
             ("format", "metadata"),
             ("metadataHeaders", "From"),
             ("metadataHeaders", "Subject"),
+            ("metadataHeaders", "List-ID"),
+            ("metadataHeaders", "List-Unsubscribe"),
         ],
         timeout=20.0,
     )
@@ -487,18 +492,23 @@ def _normalize_message(
     metadata: dict[str, Any], *, default_scope: str
 ) -> _NormalizedSource:
     headers = {
-        header.get("name", ""): header.get("value", "")
+        str(header.get("name", "")).strip().lower(): str(
+            header.get("value", "")
+        ).strip()
         for header in metadata.get("payload", {}).get("headers", [])
     }
-    from_name, from_email = parseaddr(headers.get("From", ""))
+    from_name, from_email = parseaddr(headers.get("from", ""))
     sender_email = from_email.strip().lower() or "unknown-source@sane.local"
     sender_domain = _sender_domain(sender_email)
     source_name = _normalized_source_name(from_name, sender_domain, sender_email)
     subject = _truncate(
-        headers.get("Subject") or metadata.get("snippet") or "(no subject)", 255
+        headers.get("subject") or metadata.get("snippet") or "(no subject)", 255
     )
     representative_message_id = str(metadata.get("id") or sender_email)
-    recent_message_timestamp = _parse_internal_timestamp(metadata)
+    representative_message_timestamp = _parse_internal_timestamp(metadata)
+    representative_label_ids = _normalize_label_ids(metadata.get("labelIds"))
+    representative_list_id = _normalize_list_id(headers.get("list-id"))
+    has_list_unsubscribe = bool(headers.get("list-unsubscribe"))
 
     category = _SCOPE_LABELS.get(default_scope, "Promotions")
     if "CATEGORY_PROMOTIONS" not in metadata.get("labelIds", []):
@@ -511,10 +521,13 @@ def _normalize_message(
         sender_email=sender_email,
         sender_domain=sender_domain,
         representative_subject=subject,
+        representative_label_ids=representative_label_ids,
+        representative_list_id=representative_list_id,
+        has_list_unsubscribe=has_list_unsubscribe,
         mailbox_category=category,
         message_count=1,
         representative_message_id=representative_message_id,
-        recent_message_timestamp=recent_message_timestamp,
+        representative_message_timestamp=representative_message_timestamp,
     )
 
 
@@ -528,7 +541,12 @@ def _merge_normalized_source(
         current.source_name = candidate.source_name
         current.representative_subject = candidate.representative_subject
         current.representative_message_id = candidate.representative_message_id
-        current.recent_message_timestamp = candidate.recent_message_timestamp
+        current.representative_message_timestamp = (
+            candidate.representative_message_timestamp
+        )
+        current.representative_label_ids = candidate.representative_label_ids
+        current.representative_list_id = candidate.representative_list_id
+        current.has_list_unsubscribe = candidate.has_list_unsubscribe
 
     return current
 
@@ -538,18 +556,20 @@ def _should_replace_representative(
     candidate: _NormalizedSource,
 ) -> bool:
     current_key = (
-        current.recent_message_timestamp
-        if current.recent_message_timestamp is not None
-        else -1,
+        _representative_timestamp_sort_key(current.representative_message_timestamp),
         current.representative_message_id,
     )
     candidate_key = (
-        candidate.recent_message_timestamp
-        if candidate.recent_message_timestamp is not None
-        else -1,
+        _representative_timestamp_sort_key(candidate.representative_message_timestamp),
         candidate.representative_message_id,
     )
     return candidate_key > current_key
+
+
+def _representative_timestamp_sort_key(value: datetime | None) -> float:
+    if value is None:
+        return -1.0
+    return value.timestamp()
 
 
 def _normalized_source_name(
@@ -571,14 +591,46 @@ def _sender_domain(sender_email: str) -> str:
     return sender_email.split("@", maxsplit=1)[1].strip().lower()
 
 
-def _parse_internal_timestamp(metadata: dict[str, Any]) -> int | None:
+def _parse_internal_timestamp(metadata: dict[str, Any]) -> datetime | None:
     internal_date = metadata.get("internalDate")
     try:
         if internal_date is None:
             return None
-        return int(str(internal_date))
+        return datetime.fromtimestamp(int(str(internal_date)) / 1000, tz=timezone.utc)
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_label_ids(label_ids: Any) -> list[str] | None:
+    if not isinstance(label_ids, list):
+        return None
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in label_ids:
+        if not isinstance(value, str):
+            continue
+        trimmed = _truncate(value.strip(), 80)
+        if not trimmed or trimmed in seen:
+            continue
+        seen.add(trimmed)
+        normalized.append(trimmed)
+        if len(normalized) == 20:
+            break
+
+    return normalized or None
+
+
+def _normalize_list_id(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    normalized = " ".join(value.strip().split())
+    if normalized.startswith("<") and normalized.endswith(">"):
+        normalized = normalized[1:-1].strip()
+    if not normalized:
+        return None
+    return _truncate(normalized.lower(), 255)
 
 
 def _upsert_candidate(
@@ -600,9 +652,17 @@ def _upsert_candidate(
     if existing is not None:
         merged_emails = sorted({*existing.sender_emails, source.sender_email})
         existing.sender_emails = merged_emails
+        existing.sender_domain = source.sender_domain
         existing.email_count = max(existing.email_count, source.message_count)
         existing.source_name = source.source_name
         existing.representative_subject = source.representative_subject
+        existing.representative_message_id = source.representative_message_id
+        existing.representative_message_timestamp = (
+            source.representative_message_timestamp
+        )
+        existing.representative_label_ids = source.representative_label_ids
+        existing.representative_list_id = source.representative_list_id
+        existing.has_list_unsubscribe = source.has_list_unsubscribe
         existing.mailbox_category = source.mailbox_category
         existing.candidate_reason = classification.reason
         existing.classifier_signal = classification.signal
@@ -617,8 +677,14 @@ def _upsert_candidate(
             source_key=source.source_key,
             source_name=source.source_name,
             sender_emails=[source.sender_email],
+            sender_domain=source.sender_domain,
             email_count=source.message_count,
             representative_subject=source.representative_subject,
+            representative_message_id=source.representative_message_id,
+            representative_message_timestamp=source.representative_message_timestamp,
+            representative_label_ids=source.representative_label_ids,
+            representative_list_id=source.representative_list_id,
+            has_list_unsubscribe=source.has_list_unsubscribe,
             mailbox_category=source.mailbox_category,
             candidate_reason=classification.reason,
             classifier_signal=classification.signal,
