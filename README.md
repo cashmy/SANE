@@ -216,6 +216,43 @@ cd backend
 pytest
 ```
 
+## Local Source Reclassification
+
+Use the one-off local reclassification command after classifier heuristic changes when you want already-ingested Review rows to reflect the new deterministic rules without running a new Gmail scan.
+
+Run it against a single mailbox account id:
+
+```bash
+cd backend
+python -m app.commands.reclassify_sources --account-id 2
+```
+
+The command only uses stored local source rows for that mailbox and reports:
+
+- rows inspected
+- rows changed
+- resulting signal counts
+
+It recomputes only these source fields:
+
+- `classifier_signal`
+- `suggested_decision`
+- `candidate_reason`
+- `confidence`
+
+It does not:
+
+- run a Gmail scan
+- call the Gmail API
+- modify Gmail
+- change decision history
+- change `processing_state`
+- change ingestion runs
+- change credentials
+- change mailbox connection state
+
+This is a mailbox-scoped local refresh step for classifier output only, not a mailbox sync or action execution path.
+
 The backend exposes a health endpoint at `http://localhost:8000/api/health`.
 
 ## Google OAuth and Gmail Local Setup

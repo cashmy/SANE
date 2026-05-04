@@ -26,6 +26,10 @@ class CandidateNotFoundError(LookupError):
     pass
 
 
+class EmailAccountNotFoundError(LookupError):
+    pass
+
+
 @dataclass
 class PaginationResult:
     page: int
@@ -59,6 +63,24 @@ class DecisionWriteResult:
 class BatchDecisionResult:
     applied: list[Decision]
     unchanged: list[Decision]
+
+
+@dataclass
+class ReclassificationSummary:
+    account_id: int
+    account_email: str
+    rows_inspected: int
+    rows_changed: int
+    resulting_signal_counts: dict[str, int]
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "account_id": self.account_id,
+            "account_email": self.account_email,
+            "rows_inspected": self.rows_inspected,
+            "rows_changed": self.rows_changed,
+            "resulting_signal_counts": dict(self.resulting_signal_counts),
+        }
 
 
 def ensure_demo_candidates(db: Session) -> EmailAccount:
@@ -234,6 +256,70 @@ def list_decisions(
             has_previous=current_page > 1,
             has_next=current_page < total_pages,
         ),
+    )
+
+
+def reclassify_sources_for_account(
+    db: Session,
+    *,
+    email_account_id: int,
+) -> ReclassificationSummary:
+    account = db.get(EmailAccount, email_account_id)
+    if account is None:
+        raise EmailAccountNotFoundError(
+            f"Email account {email_account_id} was not found."
+        )
+
+    sources = list(
+        db.scalars(
+            select(Candidate)
+            .where(Candidate.email_account_id == account.id)
+            .order_by(Candidate.id.asc())
+        ).all()
+    )
+
+    signal_counts = {signal.value: 0 for signal in CandidateSignal}
+    rows_changed = 0
+
+    for source in sources:
+        classification = classify_demo_candidate(
+            sender_name=source.source_name,
+            sender_email=_classification_sender_email(source),
+            subject=source.representative_subject,
+            mailbox_category=source.mailbox_category,
+        )
+        signal_counts[classification.signal.value] += 1
+
+        current_values = (
+            source.classifier_signal,
+            source.suggested_decision,
+            source.candidate_reason,
+            source.confidence,
+        )
+        next_values = (
+            classification.signal,
+            classification.suggested_decision,
+            classification.reason,
+            classification.confidence,
+        )
+        if current_values == next_values:
+            continue
+
+        source.classifier_signal = classification.signal
+        source.suggested_decision = classification.suggested_decision
+        source.candidate_reason = classification.reason
+        source.confidence = classification.confidence
+        rows_changed += 1
+
+    if rows_changed:
+        db.commit()
+
+    return ReclassificationSummary(
+        account_id=account.id,
+        account_email=account.account_email,
+        rows_inspected=len(sources),
+        rows_changed=rows_changed,
+        resulting_signal_counts=signal_counts,
     )
 
 
@@ -460,3 +546,9 @@ def _get_first_account_or_none(db: Session, user_id: int) -> EmailAccount | None
         .where(EmailAccount.user_id == user_id)
         .order_by(EmailAccount.id.asc())
     )
+
+
+def _classification_sender_email(source: Candidate) -> str:
+    if source.sender_emails:
+        return source.sender_emails[0]
+    return source.source_key
